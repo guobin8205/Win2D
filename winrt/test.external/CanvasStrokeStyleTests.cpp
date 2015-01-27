@@ -13,10 +13,17 @@
 #include "pch.h"
 
 using namespace Microsoft::Graphics::Canvas;
-using namespace Microsoft::Graphics::Canvas::Numerics;
+using namespace Windows::UI;
 
 TEST_CLASS(CanvasStrokeStyleTests)
 {
+    Color m_anyColor;
+
+public:
+    CanvasStrokeStyleTests()
+        : m_anyColor(Color{1,2,3,4})
+    {}
+
     TEST_METHOD(CanvasStrokeStyleTests_Construction)
     {
         CanvasStrokeStyle^ canvasStrokeStyle = ref new CanvasStrokeStyle();
@@ -27,7 +34,7 @@ TEST_CLASS(CanvasStrokeStyleTests)
         // This should yield an exception on deletion of the drawing session,
         // but right now it does not, seemingly due to a pre-existing issue.
         RunOnUIThread(
-            []
+            [=]
             {
                 // Create a drawing session on one factory.
                 CanvasDrawingSession^ drawingSession;
@@ -37,9 +44,10 @@ TEST_CLASS(CanvasStrokeStyleTests)
                     auto canvasImageSource = ref new CanvasImageSource(
                         canvasDevice,
                         1,
-                        1);
+                        1,
+                        DEFAULT_DPI);
                     brush = ref new CanvasSolidColorBrush(canvasDevice, Windows::UI::Colors::Red);
-                    drawingSession = canvasImageSource->CreateDrawingSession();
+                    drawingSession = canvasImageSource->CreateDrawingSession(m_anyColor);
                 }
 
                 // ...Create a stroke style on another.
@@ -53,7 +61,7 @@ TEST_CLASS(CanvasStrokeStyleTests)
                     strokeStyle = GetOrCreate<CanvasStrokeStyle>(d2dStrokeStyle.Get());
                 }
 
-                Vector2 point{ 1, 1 };
+                float2 point{ 1, 1 };
                 drawingSession->DrawLine(point, point, brush, 5, strokeStyle);
 
                 delete drawingSession;
@@ -63,7 +71,7 @@ TEST_CLASS(CanvasStrokeStyleTests)
     TEST_METHOD(CanvasStrokeStyleTests_DrawForcesRealization)
     {
         RunOnUIThread(
-            []
+            [=]
             {
                 // Create a drawing session on one factory.
                 CanvasDrawingSession^ drawingSession;
@@ -72,13 +80,14 @@ TEST_CLASS(CanvasStrokeStyleTests)
                 auto canvasImageSource = ref new CanvasImageSource(
                     canvasDevice,
                     1,
-                    1);
+                    1,
+                    DEFAULT_DPI);
                 brush = ref new CanvasSolidColorBrush(canvasDevice, Windows::UI::Colors::Red);
-                drawingSession = canvasImageSource->CreateDrawingSession();
+                drawingSession = canvasImageSource->CreateDrawingSession(m_anyColor);
 
                 CanvasStrokeStyle^ strokeStyle = ref new CanvasStrokeStyle();
 
-                Vector2 point{ 1, 1 };
+                float2 point{ 1, 1 };
                 drawingSession->DrawLine(point, point, brush, 5, strokeStyle);
 
                 delete drawingSession;
@@ -150,7 +159,7 @@ TEST_CLASS(CanvasStrokeStyleTests)
 
         ComPtr<ID2D1SolidColorBrush> d2dSolidColorBrush;
         ThrowIfFailed(d2dDeviceContext->CreateSolidColorBrush(D2D1::ColorF(1, 0, 0), &d2dSolidColorBrush));
-        auto canvasBrush = GetOrCreate<CanvasSolidColorBrush>(d2dSolidColorBrush.Get());
+        auto canvasBrush = GetOrCreate<CanvasSolidColorBrush>(As<ID2D1Device1>(d2dDevice).Get(), d2dSolidColorBrush.Get());
 
         ComPtr<ID2D1StrokeStyle1> d2dStrokeStyle;
         D2D1_STROKE_STYLE_PROPERTIES1 strokeStyleProperties = D2D1::StrokeStyleProperties1();
@@ -158,7 +167,7 @@ TEST_CLASS(CanvasStrokeStyleTests)
         ThrowIfFailed(d2dFactory->CreateStrokeStyle(&strokeStyleProperties, NULL, 0, &d2dStrokeStyle));
         auto canvasStrokeStyle = GetOrCreate<CanvasStrokeStyle>(d2dStrokeStyle.Get());
 
-        Vector2 point{ 0, 1 };
+        float2 point{ 0, 1 };
         drawingSession->DrawLine(point, point, canvasBrush, 5.0f, canvasStrokeStyle);
 
         delete drawingSession;

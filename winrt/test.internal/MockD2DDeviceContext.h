@@ -24,31 +24,51 @@ namespace canvas
         ChainInterfaces<ID2D1DeviceContext1, ID2D1DeviceContext, ID2D1RenderTarget, ID2D1Resource>>
     {
     public:
-        std::function<void(const D2D1_COLOR_F*)> MockClear;
-        std::function<void(D2D1_MATRIX_3X2_F*)> MockGetTransform;
-        std::function<void(const D2D1_MATRIX_3X2_F*)> MockSetTransform;
-        std::function<D2D1_ANTIALIAS_MODE()> MockGetAntialiasMode;
-        std::function<void(const D2D1_ANTIALIAS_MODE)> MockSetAntialiasMode;
-        std::function<D2D1_PRIMITIVE_BLEND()> MockGetPrimitiveBlend;
-        std::function<void(const D2D1_PRIMITIVE_BLEND)> MockSetPrimitiveBlend;
-        std::function<D2D1_TEXT_ANTIALIAS_MODE()> MockGetTextAntialiasMode;
-        std::function<void(const D2D1_TEXT_ANTIALIAS_MODE)> MockSetTextAntialiasMode;
-        std::function<D2D1_UNIT_MODE()> MockGetUnitMode;
-        std::function<void(const D2D1_UNIT_MODE)> MockSetUnitMode;
-        std::function<void(float dpiX, float dpiY)> MockSetDpi;
-        std::function<void(D2D1_POINT_2F,D2D1_POINT_2F,ID2D1Brush*,float,ID2D1StrokeStyle*)> MockDrawLine;
-        std::function<void(const D2D1_RECT_F*,ID2D1Brush*,float,ID2D1StrokeStyle*)> MockDrawRectangle;
-        std::function<void(const D2D1_RECT_F*,ID2D1Brush*)> MockFillRectangle;
-        std::function<void(const D2D1_ROUNDED_RECT*,ID2D1Brush*,float,ID2D1StrokeStyle*)> MockDrawRoundedRectangle;
-        std::function<void(const D2D1_ROUNDED_RECT*,ID2D1Brush*)> MockFillRoundedRectangle;
-        std::function<void(const D2D1_ELLIPSE*,ID2D1Brush*,float,ID2D1StrokeStyle*)> MockDrawEllipse;
-        std::function<void(const D2D1_ELLIPSE*,ID2D1Brush*)> MockFillEllipse;
-        std::function<void(const wchar_t*,uint32_t,IDWriteTextFormat*,D2D1_RECT_F,ID2D1Brush*,D2D1_DRAW_TEXT_OPTIONS,DWRITE_MEASURING_MODE)> MockDrawText;
-        std::function<void(ID2D1Image*)> MockDrawImage;
-        std::function<void(ID2D1Bitmap*, const D2D1_RECT_F*, FLOAT, D2D1_INTERPOLATION_MODE, const D2D1_RECT_F*, const D2D1_MATRIX_4X4_F*)> MockDrawBitmap;
-        std::function<void(ID2D1Device**)> MockGetDevice;
-        std::function<HRESULT(ID2D1Effect **)> MockCreateEffect;
-        std::function<HRESULT(const D2D1_COLOR_F* color, const D2D1_BRUSH_PROPERTIES* brushProperties, ID2D1SolidColorBrush** solidColorBrush)> MockCreateSolidColorBrush;
+        CALL_COUNTER_WITH_MOCK(ClearMethod                 , void(D2D1_COLOR_F const*));
+        CALL_COUNTER_WITH_MOCK(GetTransformMethod          , void(D2D1_MATRIX_3X2_F*));
+        CALL_COUNTER_WITH_MOCK(SetTransformMethod          , void(D2D1_MATRIX_3X2_F const*));
+        CALL_COUNTER_WITH_MOCK(GetAntialiasModeMethod      , D2D1_ANTIALIAS_MODE());
+        CALL_COUNTER_WITH_MOCK(SetAntialiasModeMethod      , void(D2D1_ANTIALIAS_MODE));
+        CALL_COUNTER_WITH_MOCK(GetPrimitiveBlendMethod     , D2D1_PRIMITIVE_BLEND());
+        CALL_COUNTER_WITH_MOCK(SetPrimitiveBlendMethod     , void(D2D1_PRIMITIVE_BLEND));
+        CALL_COUNTER_WITH_MOCK(GetTextAntialiasModeMethod  , D2D1_TEXT_ANTIALIAS_MODE());
+        CALL_COUNTER_WITH_MOCK(SetTextAntialiasModeMethod  , void(D2D1_TEXT_ANTIALIAS_MODE));
+        CALL_COUNTER_WITH_MOCK(GetUnitModeMethod           , D2D1_UNIT_MODE());
+        CALL_COUNTER_WITH_MOCK(SetUnitModeMethod           , void(D2D1_UNIT_MODE));
+        CALL_COUNTER_WITH_MOCK(SetDpiMethod                , void(float dpiX, float dpiY));
+        CALL_COUNTER_WITH_MOCK(GetDpiMethod                , void(float* dpiX, float* dpiY));
+        CALL_COUNTER_WITH_MOCK(DrawLineMethod              , void(D2D1_POINT_2F,D2D1_POINT_2F,ID2D1Brush*,float,ID2D1StrokeStyle*));
+        CALL_COUNTER_WITH_MOCK(DrawRectangleMethod         , void(D2D1_RECT_F const*,ID2D1Brush*,float,ID2D1StrokeStyle*));
+        CALL_COUNTER_WITH_MOCK(FillRectangleMethod         , void(D2D1_RECT_F const*,ID2D1Brush*));
+        CALL_COUNTER_WITH_MOCK(DrawRoundedRectangleMethod  , void(D2D1_ROUNDED_RECT const*,ID2D1Brush*,float,ID2D1StrokeStyle*));
+        CALL_COUNTER_WITH_MOCK(FillRoundedRectangleMethod  , void(D2D1_ROUNDED_RECT const*,ID2D1Brush*));
+        CALL_COUNTER_WITH_MOCK(DrawEllipseMethod           , void(D2D1_ELLIPSE const*,ID2D1Brush*,float,ID2D1StrokeStyle*));
+        CALL_COUNTER_WITH_MOCK(FillEllipseMethod           , void(D2D1_ELLIPSE const*,ID2D1Brush*));
+        CALL_COUNTER_WITH_MOCK(DrawTextMethod              , void(wchar_t const*,uint32_t,IDWriteTextFormat*,D2D1_RECT_F const*,ID2D1Brush*,D2D1_DRAW_TEXT_OPTIONS,DWRITE_MEASURING_MODE));
+        CALL_COUNTER_WITH_MOCK(DrawImageMethod             , void(ID2D1Image*, D2D1_POINT_2F const*, D2D1_RECT_F const*, D2D1_INTERPOLATION_MODE, D2D1_COMPOSITE_MODE));
+        CALL_COUNTER_WITH_MOCK(DrawBitmapMethod            , void(ID2D1Bitmap*, D2D1_RECT_F const*, FLOAT, D2D1_INTERPOLATION_MODE, D2D1_RECT_F const*, D2D1_MATRIX_4X4_F const*));
+        CALL_COUNTER_WITH_MOCK(GetDeviceMethod             , void(ID2D1Device**));
+        CALL_COUNTER_WITH_MOCK(CreateEffectMethod          , HRESULT(IID const&, ID2D1Effect **));
+        CALL_COUNTER_WITH_MOCK(CreateCommandListMethod     , HRESULT(ID2D1CommandList**));
+        CALL_COUNTER_WITH_MOCK(CreateSolidColorBrushMethod , HRESULT(D2D1_COLOR_F const*, D2D1_BRUSH_PROPERTIES const*, ID2D1SolidColorBrush**));
+        CALL_COUNTER_WITH_MOCK(GetImageWorldBoundsMethod   , HRESULT(ID2D1Image*, D2D1_RECT_F*));
+        CALL_COUNTER_WITH_MOCK(GetMaximumBitmapSizeMethod  , UINT32());
+        CALL_COUNTER_WITH_MOCK(CreateBitmapMethod          , HRESULT(D2D1_SIZE_U, void const*, UINT32, D2D1_BITMAP_PROPERTIES1 const*, ID2D1Bitmap1**));
+        CALL_COUNTER_WITH_MOCK(CreateBitmapFromDxgiSurfaceMethod, HRESULT(IDXGISurface*, const D2D1_BITMAP_PROPERTIES1*, ID2D1Bitmap1**));
+        CALL_COUNTER_WITH_MOCK(SetTargetMethod             , void(ID2D1Image*));
+        CALL_COUNTER_WITH_MOCK(GetTargetMethod             , void(ID2D1Image**));
+        CALL_COUNTER_WITH_MOCK(BeginDrawMethod             , void());
+        CALL_COUNTER_WITH_MOCK(EndDrawMethod               , HRESULT(D2D1_TAG*, D2D1_TAG*));
+
+        MockD2DDeviceContext()
+        {
+            CreateSolidColorBrushMethod.AllowAnyCall(
+                [](D2D1_COLOR_F const*, D2D1_BRUSH_PROPERTIES const*, ID2D1SolidColorBrush** value)
+                {
+                    ComPtr<MockD2DSolidColorBrush> brush = Make<MockD2DSolidColorBrush>();
+                    return brush.CopyTo(value);
+                });
+        }
 
         // ID2D1Resource
 
@@ -84,20 +104,12 @@ namespace canvas
         }
 
         IFACEMETHODIMP CreateSolidColorBrush(
-            const D2D1_COLOR_F* color,
-            const D2D1_BRUSH_PROPERTIES* brushProperties,
+            D2D1_COLOR_F const* color,
+            D2D1_BRUSH_PROPERTIES const* brushProperties,
             ID2D1SolidColorBrush** solidColorBrush
             ) override
         {
-            if (MockCreateSolidColorBrush)
-            {
-                return MockCreateSolidColorBrush(color, brushProperties, solidColorBrush);
-            }
-            else
-            {
-                ComPtr<MockD2DSolidColorBrush> mockD2DSolidColorBrush = Make<MockD2DSolidColorBrush>();
-                return mockD2DSolidColorBrush.CopyTo(solidColorBrush);
-            }
+            return CreateSolidColorBrushMethod.WasCalled(color, brushProperties, solidColorBrush);
         }
 
         IFACEMETHODIMP CreateGradientStopCollection(const D2D1_GRADIENT_STOP *, uint32_t, D2D1_GAMMA, D2D1_EXTEND_MODE, ID2D1GradientStopCollection **) override
@@ -140,79 +152,37 @@ namespace canvas
 
         IFACEMETHODIMP_(void) DrawLine(D2D1_POINT_2F p0, D2D1_POINT_2F p1, ID2D1Brush* brush, float strokeWidth, ID2D1StrokeStyle* strokeStyle) override
         {
-            if (!MockDrawLine)
-            {
-                Assert::Fail(L"Unexpected call to DrawLine");
-                return;
-            }
-
-            MockDrawLine(p0, p1, brush, strokeWidth, strokeStyle);
+            DrawLineMethod.WasCalled(p0, p1, brush, strokeWidth, strokeStyle);
         }
 
         IFACEMETHODIMP_(void) DrawRectangle(const D2D1_RECT_F* rect, ID2D1Brush* brush, float strokeWidth, ID2D1StrokeStyle* strokeStyle) override
         {
-            if (!MockDrawRectangle)
-            {
-                Assert::Fail(L"Unexpected call to DrawRectangle");
-                return;
-            }
-
-            MockDrawRectangle(rect, brush, strokeWidth, strokeStyle);
+            DrawRectangleMethod.WasCalled(rect, brush, strokeWidth, strokeStyle);
         }
 
         IFACEMETHODIMP_(void) FillRectangle(const D2D1_RECT_F* rect, ID2D1Brush* brush) override
         {
-            if (!MockFillRectangle)
-            {
-                Assert::Fail(L"Unexpected call to FillRectangle");
-                return;
-            }
-
-            MockFillRectangle(rect, brush);
+            FillRectangleMethod.WasCalled(rect, brush);
         }
 
         IFACEMETHODIMP_(void) DrawRoundedRectangle(const D2D1_ROUNDED_RECT* roundedRect, ID2D1Brush* brush, float strokeWidth, ID2D1StrokeStyle* strokeStyle) override
         {
-            if (!MockDrawRoundedRectangle)
-            {
-                Assert::Fail(L"Unexpected call to DrawRoundedRectangle");
-                return;
-            }
-
-            MockDrawRoundedRectangle(roundedRect, brush, strokeWidth, strokeStyle);
+            DrawRoundedRectangleMethod.WasCalled(roundedRect, brush, strokeWidth, strokeStyle);
         }
 
         IFACEMETHODIMP_(void) FillRoundedRectangle(const D2D1_ROUNDED_RECT* roundedRect, ID2D1Brush* brush) override
         {
-            if (!MockFillRoundedRectangle)
-            {
-                Assert::Fail(L"Unexpected call to FillRoundedRectangle");
-                return;
-            }
-
-            MockFillRoundedRectangle(roundedRect, brush);
+            FillRoundedRectangleMethod.WasCalled(roundedRect, brush);
         }
 
         IFACEMETHODIMP_(void) DrawEllipse(const D2D1_ELLIPSE* ellipse, ID2D1Brush* brush, float strokeWidth, ID2D1StrokeStyle* strokeStyle) override
         {
-            if (!MockDrawEllipse)
-            {
-                Assert::Fail(L"Unexpected call to DrawEllipse");
-                return;
-            }
-
-            MockDrawEllipse(ellipse, brush, strokeWidth, strokeStyle);
+            DrawEllipseMethod.WasCalled(ellipse, brush, strokeWidth, strokeStyle);
         }
 
         IFACEMETHODIMP_(void) FillEllipse(const D2D1_ELLIPSE* ellipse, ID2D1Brush* brush) override
         {
-            if (!MockFillEllipse)
-            {
-                Assert::Fail(L"Unexpected call to FillEllipse");
-                return;
-            }
-
-            MockFillEllipse(ellipse, brush);
+            FillEllipseMethod.WasCalled(ellipse, brush);
         }
 
         IFACEMETHODIMP_(void) DrawGeometry(ID2D1Geometry *,ID2D1Brush *,FLOAT,ID2D1StrokeStyle *) override
@@ -243,13 +213,7 @@ namespace canvas
 
         IFACEMETHODIMP_(void) DrawText(const wchar_t* text, uint32_t textLength, IDWriteTextFormat* format, const D2D1_RECT_F* rect, ID2D1Brush* brush, D2D1_DRAW_TEXT_OPTIONS options, DWRITE_MEASURING_MODE measuringMode) override
         {
-            if (!MockDrawText)
-            {
-                Assert::Fail(L"Unexpected call to MockDrawText");
-                return;
-            }
-
-            MockDrawText(text, textLength, format, *rect, brush, options, measuringMode);
+            DrawTextMethod.WasCalled(text, textLength, format, rect, brush, options, measuringMode);
         }
 
         IFACEMETHODIMP_(void) DrawTextLayout(D2D1_POINT_2F,IDWriteTextLayout *,ID2D1Brush *,D2D1_DRAW_TEXT_OPTIONS) override
@@ -265,79 +229,37 @@ namespace canvas
         IFACEMETHODIMP_(void) DrawImage(_In_ ID2D1Image *image, _In_opt_ CONST D2D1_POINT_2F *targetOffset, _In_opt_ CONST D2D1_RECT_F *imageRectangle,
             D2D1_INTERPOLATION_MODE interpolationMode, D2D1_COMPOSITE_MODE compositeMode) override
         {
-            if (!MockDrawImage)
-            {
-                Assert::Fail(L"Unexpected call to DrawImage");
-                return;
-            }
-
-            MockDrawImage(image);
+            DrawImageMethod.WasCalled(image, targetOffset, imageRectangle, interpolationMode, compositeMode);
         }
 
         IFACEMETHODIMP_(void) SetTransform(const D2D1_MATRIX_3X2_F* m) override
         {
-            if (!MockSetTransform)
-            {
-                Assert::Fail(L"Unexpected call to SetTransform");
-                return;
-            }
-
-            MockSetTransform(m);
+            SetTransformMethod.WasCalled(m);
         }
 
         IFACEMETHODIMP_(void) GetTransform(D2D1_MATRIX_3X2_F *m) const override
         {
-            if (!MockGetTransform)
-            {
-                Assert::Fail(L"Unexpected call to GetTransform");
-                return;
-            }
-
-            MockGetTransform(m);
+            GetTransformMethod.WasCalled(m);
         }
 
         IFACEMETHODIMP_(void) SetAntialiasMode(D2D1_ANTIALIAS_MODE m) override
         {
-            if (!MockSetAntialiasMode)
-            {
-                Assert::Fail(L"Unexpected call to SetAntialiasMode");
-                return;
-            }
-
-            MockSetAntialiasMode(m);
+            SetAntialiasModeMethod.WasCalled(m);
         }
 
         IFACEMETHODIMP_(D2D1_ANTIALIAS_MODE) GetAntialiasMode() const override
         {
-            if (!MockGetAntialiasMode)
-            {
-                Assert::Fail(L"Unexpected call to GetAntialiasMode");
-                return D2D1_ANTIALIAS_MODE_PER_PRIMITIVE;
-            }
-
-            return MockGetAntialiasMode();
+            return GetAntialiasModeMethod.WasCalled();
         }
 
         IFACEMETHODIMP_(void) SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE m) override
         {
-            if (!MockSetTextAntialiasMode)
-            {
-                Assert::Fail(L"Unexpected call to SetTextAntialiasMode");
-                return;
-            }
-
-            MockSetTextAntialiasMode(m);
+            SetTextAntialiasModeMethod.WasCalled(m);
         }
 
         IFACEMETHODIMP_(D2D1_TEXT_ANTIALIAS_MODE) GetTextAntialiasMode() const override
         {
-            if (!MockGetTextAntialiasMode)
-            {
-                Assert::Fail(L"Unexpected call to GetTextAntialiasMode");
-                return D2D1_TEXT_ANTIALIAS_MODE_DEFAULT;
-            }
-
-            return MockGetTextAntialiasMode();
+            return GetTextAntialiasModeMethod.WasCalled();
         }
 
         IFACEMETHODIMP_(void) SetTextRenderingParams(IDWriteRenderingParams *) override
@@ -398,24 +320,17 @@ namespace canvas
 
         IFACEMETHODIMP_(void) Clear(const D2D1_COLOR_F* color) override
         {
-            if (!MockClear)
-            {
-                Assert::Fail(L"Unexpected call to Clear");
-                return;
-            }
-
-            MockClear(color);
+            ClearMethod.WasCalled(color);
         }
 
         IFACEMETHODIMP_(void) BeginDraw() override
         {
-            Assert::Fail(L"Unexpected call to BeginDraw");
+            BeginDrawMethod.WasCalled();
         }
 
-        IFACEMETHODIMP EndDraw(D2D1_TAG *,D2D1_TAG *) override
+        IFACEMETHODIMP EndDraw(D2D1_TAG* tag0, D2D1_TAG* tag1) override
         {
-            Assert::Fail(L"Unexpected call to EndDraw");
-            return E_NOTIMPL;
+            return EndDrawMethod.WasCalled(tag0, tag1);
         }
 
         IFACEMETHODIMP_(D2D1_PIXEL_FORMAT) GetPixelFormat() const override
@@ -426,18 +341,12 @@ namespace canvas
 
         IFACEMETHODIMP_(void) SetDpi(FLOAT dpiX, FLOAT dpiY) override
         {
-            if (!MockSetDpi)
-            {
-                Assert::Fail(L"Unexpected call to SetDpi");
-                return;
-            }
-
-            MockSetDpi(dpiX, dpiY);
+            SetDpiMethod.WasCalled(dpiX, dpiY);
         }
 
-        IFACEMETHODIMP_(void) GetDpi(FLOAT *,FLOAT *) const override
+        IFACEMETHODIMP_(void) GetDpi(FLOAT* dpiX, FLOAT* dpiY) const override
         {
-            Assert::Fail(L"Unexpected call to GetDpi");
+            GetDpiMethod.WasCalled(dpiX, dpiY);
         }
 
         IFACEMETHODIMP_(D2D1_SIZE_F) GetSize() const override
@@ -454,8 +363,7 @@ namespace canvas
 
         IFACEMETHODIMP_(UINT32) GetMaximumBitmapSize() const override
         {
-            Assert::Fail(L"Unexpected call to GetMaximumBitmapSize");
-            return 0;
+            return GetMaximumBitmapSizeMethod.WasCalled();
         }
 
         IFACEMETHODIMP_(BOOL) IsSupported(const D2D1_RENDER_TARGET_PROPERTIES *) const override
@@ -466,10 +374,14 @@ namespace canvas
 
         // ID2D1DeviceContext
 
-        IFACEMETHODIMP CreateBitmap(D2D1_SIZE_U,const void *,UINT32,const D2D1_BITMAP_PROPERTIES1 *,ID2D1Bitmap1 **) override
+        IFACEMETHODIMP CreateBitmap(D2D1_SIZE_U size, void const* sourceData, UINT32 pitch, D2D1_BITMAP_PROPERTIES1 const* bitmapProperties, ID2D1Bitmap1** bitmap) override
         {
-            Assert::Fail(L"Unexpected call to CreateBitmap");
-            return E_NOTIMPL;
+            return CreateBitmapMethod.WasCalled(
+                size,
+                sourceData,
+                pitch,
+                bitmapProperties,
+                bitmap);
         }
 
         IFACEMETHODIMP CreateBitmapFromWicBitmap(IWICBitmapSource *,const D2D1_BITMAP_PROPERTIES1 *,ID2D1Bitmap1 **) override
@@ -496,21 +408,14 @@ namespace canvas
             return E_NOTIMPL;
         }
 
-        IFACEMETHODIMP CreateBitmapFromDxgiSurface(IDXGISurface *,const D2D1_BITMAP_PROPERTIES1 *,ID2D1Bitmap1 **) override
+        IFACEMETHODIMP CreateBitmapFromDxgiSurface(IDXGISurface* surface, const D2D1_BITMAP_PROPERTIES1* properties, ID2D1Bitmap1** bitmap) override
         {
-            Assert::Fail(L"Unexpected call to CreateBitmapFromDxgiSurface");
-            return E_NOTIMPL;
+            return CreateBitmapFromDxgiSurfaceMethod.WasCalled(surface, properties, bitmap);
         }
 
-        IFACEMETHODIMP CreateEffect(IID const&,ID2D1Effect** effect) override
+        IFACEMETHODIMP CreateEffect(IID const& iid, ID2D1Effect** effect) override
         {
-            if (!MockCreateEffect)
-            {
-                Assert::Fail(L"Unexpected call to CreateEffect");
-                return E_NOTIMPL;
-            }
-
-            return MockCreateEffect(effect);
+            return CreateEffectMethod.WasCalled(iid, effect);
         }
 
         IFACEMETHODIMP CreateGradientStopCollection(const D2D1_GRADIENT_STOP *, uint32_t, D2D1_COLOR_SPACE, D2D1_COLOR_SPACE, D2D1_BUFFER_PRECISION, D2D1_EXTEND_MODE, D2D1_COLOR_INTERPOLATION_MODE, ID2D1GradientStopCollection1 **) override
@@ -531,10 +436,9 @@ namespace canvas
             return E_NOTIMPL;
         }
 
-        IFACEMETHODIMP CreateCommandList(ID2D1CommandList **) override
+        IFACEMETHODIMP CreateCommandList(ID2D1CommandList** value) override
         {
-            Assert::Fail(L"Unexpected call to CreateCommandList");
-            return E_NOTIMPL;
+            return CreateCommandListMethod.WasCalled(value);
         }
 
         IFACEMETHODIMP_(BOOL) IsDxgiFormatSupported(DXGI_FORMAT) const override
@@ -555,10 +459,9 @@ namespace canvas
             return E_NOTIMPL;
         }
 
-        IFACEMETHODIMP GetImageWorldBounds(ID2D1Image *,D2D1_RECT_F *) const override
+        IFACEMETHODIMP GetImageWorldBounds(ID2D1Image* image, D2D1_RECT_F* bounds) const override
         {
-            Assert::Fail(L"Unexpected call to GetImageWorldBounds");
-            return E_NOTIMPL;
+            return GetImageWorldBoundsMethod.WasCalled(image, bounds);
         }
 
         IFACEMETHODIMP GetGlyphRunWorldBounds(D2D1_POINT_2F,const DWRITE_GLYPH_RUN *,DWRITE_MEASURING_MODE,D2D1_RECT_F *) const override
@@ -569,23 +472,17 @@ namespace canvas
 
         IFACEMETHODIMP_(void) GetDevice(ID2D1Device** device) const override
         {
-            if (!MockGetDevice)
-            {
-                Assert::Fail(L"Unexpected call to GetDevice");
-                return;
-            }
-
-            MockGetDevice(device);
+            GetDeviceMethod.WasCalled(device);
         }
 
-        IFACEMETHODIMP_(void) SetTarget(ID2D1Image *) override
+        IFACEMETHODIMP_(void) SetTarget(ID2D1Image* target) override
         {
-            Assert::Fail(L"Unexpected call to SetTarget");
+            return SetTargetMethod.WasCalled(target);
         }
 
-        IFACEMETHODIMP_(void) GetTarget(ID2D1Image **) const override
+        IFACEMETHODIMP_(void) GetTarget(ID2D1Image ** target) const override
         {
-            Assert::Fail(L"Unexpected call to GetTarget");
+            return GetTargetMethod.WasCalled(target);
         }
 
         IFACEMETHODIMP_(void) SetRenderingControls(const D2D1_RENDERING_CONTROLS *) override
@@ -600,46 +497,22 @@ namespace canvas
 
         IFACEMETHODIMP_(void) SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND b) override
         {
-            if (!MockSetPrimitiveBlend)
-            {
-                Assert::Fail(L"Unexpected call to SetPrimitiveBlend");
-                return;
-            }
-
-            MockSetPrimitiveBlend(b);
+            SetPrimitiveBlendMethod.WasCalled(b);
         }
 
         IFACEMETHODIMP_(D2D1_PRIMITIVE_BLEND) GetPrimitiveBlend() const override
         {
-            if (!MockGetPrimitiveBlend)
-            {
-                Assert::Fail(L"Unexpected call to GetPrimitiveBlend");
-                return D2D1_PRIMITIVE_BLEND_SOURCE_OVER;
-            }
-
-            return MockGetPrimitiveBlend();
+            return GetPrimitiveBlendMethod.WasCalled();
         }
 
         IFACEMETHODIMP_(void) SetUnitMode(D2D1_UNIT_MODE m) override
         {
-            if (!MockSetUnitMode)
-            {
-                Assert::Fail(L"Unexpected call to SetUnitMode");
-                return;
-            }
-
-            MockSetUnitMode(m);
+            SetUnitModeMethod.WasCalled(m);
         }
 
         IFACEMETHODIMP_(D2D1_UNIT_MODE) GetUnitMode() const override
         {
-            if (!MockGetUnitMode)
-            {
-                Assert::Fail(L"Unexpected call to GetUnitMode");
-                return D2D1_UNIT_MODE_DIPS;
-            }
-
-            return MockGetUnitMode();
+            return GetUnitModeMethod.WasCalled();
         }
 
         IFACEMETHODIMP_(void) DrawGlyphRun(D2D1_POINT_2F,const DWRITE_GLYPH_RUN *,const DWRITE_GLYPH_RUN_DESCRIPTION *,ID2D1Brush *,DWRITE_MEASURING_MODE) override
@@ -654,12 +527,7 @@ namespace canvas
 
         IFACEMETHODIMP_(void) DrawBitmap(ID2D1Bitmap* bitmap, const D2D1_RECT_F* destRect, FLOAT opacity, D2D1_INTERPOLATION_MODE interpolationMode, const D2D1_RECT_F* sourceRect, const D2D1_MATRIX_4X4_F* perspective) override
         {
-            if (!MockDrawBitmap)
-            {
-                Assert::Fail(L"Unexpected call to DrawBitmap");
-            }
-
-            return MockDrawBitmap(bitmap, destRect, opacity, interpolationMode, sourceRect, perspective);
+            DrawBitmapMethod.WasCalled(bitmap, destRect, opacity, interpolationMode, sourceRect, perspective);
         }
 
         IFACEMETHODIMP_(void) PushLayer(const D2D1_LAYER_PARAMETERS1 *,ID2D1Layer *) override

@@ -185,13 +185,6 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             ThrowHR(E_INVALIDARG);
     }
 
-    template<typename T>
-    static void ThrowIfNegative(T value)
-    {
-        if (value < 0)
-            ThrowHR(E_INVALIDARG);
-    }
-
 
     //
     // Conversion between DWite and Canvas types.  Many of the enums are
@@ -549,13 +542,13 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
     }
 
 
-    IFACEMETHODIMP CanvasTextFormat::GetResource(IUnknown** value)
+    IFACEMETHODIMP CanvasTextFormat::GetResource(REFIID iid, void** value)
     {
         return ExceptionBoundary(
             [&]
             {
                 CheckAndClearOutPointer(value);
-                ThrowIfFailed(GetRealizedTextFormat().CopyTo(value));
+                ThrowIfFailed(GetRealizedTextFormat().CopyTo(iid, value));
             });
     }
 

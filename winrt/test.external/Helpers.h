@@ -16,8 +16,13 @@
 #include <ppltasks.h>
 
 using namespace concurrency;
-using namespace Windows::Foundation;
 using namespace Microsoft::Graphics::Canvas;
+using namespace Windows::UI::Core;
+using namespace Windows::ApplicationModel::Core;
+using namespace Windows::Foundation;
+using namespace Windows::Foundation::Numerics;
+using namespace Microsoft::Graphics::Canvas::DirectX;
+using namespace Microsoft::Graphics::Canvas::DirectX::Direct3D11;
 
 namespace Microsoft
 {
@@ -68,6 +73,7 @@ namespace Microsoft
             TO_STRING(ID2D1LinearGradientBrush);
             TO_STRING(ID2D1RadialGradientBrush);
             TO_STRING_CX(ICanvasImage);
+            TO_STRING(IDXGISwapChain2);
 
 #undef TO_STRING
 #undef TO_STRING_CX
@@ -82,6 +88,28 @@ namespace Microsoft
             static inline std::wstring ToString<Windows::UI::Color>(Windows::UI::Color const& value)
             {
                 return L"Color";
+            }
+
+            template<>
+            static inline std::wstring ToString<Windows::Foundation::Size>(Windows::Foundation::Size const& value)
+            {
+                wchar_t buf[256];
+                ThrowIfFailed(StringCchPrintf(
+                    buf,
+                    _countof(buf),
+                    L"Size{%f,%f}", value.Width, value.Height));
+                return buf;
+            }
+
+            template<>
+            static inline std::wstring ToString<BitmapSize>(BitmapSize const& value)
+            {
+                wchar_t buf[256];
+                ThrowIfFailed(StringCchPrintf(
+                    buf,
+                    _countof(buf),
+                    L"BitmapSize{%u,%u}", value.Width, value.Height));
+                return buf;
             }
 
             template<>
@@ -115,16 +143,16 @@ namespace Microsoft
             }
 
             template<>
-            static inline std::wstring ToString<Microsoft::Graphics::Canvas::Numerics::Matrix3x2>(Microsoft::Graphics::Canvas::Numerics::Matrix3x2 const& value)
+            static inline std::wstring ToString<float3x2>(float3x2 const& value)
             {
                 wchar_t buf[256];
                 ThrowIfFailed(StringCchPrintf(
                     buf,
                     _countof(buf),
-                    L"Numerics.Matrix{M11=%f,M12=%f,M21=%f,M22=%f,M31=%f,M32=%f}",
-                    value.M11, value.M12,
-                    value.M21, value.M22,
-                    value.M31, value.M32));
+                    L"Numerics.float3x2{m11=%f,m12=%f,m21=%f,m22=%f,m31=%f,m32=%f}",
+                    value.m11, value.m12,
+                    value.m21, value.m22,
+                    value.m31, value.m32));
 
                 return buf;
             }
@@ -205,25 +233,44 @@ namespace Microsoft
                     case D2D1_ALPHA_MODE_PREMULTIPLIED: return L"D2D1_ALPHA_MODE_PREMULTIPLIED";
                     case D2D1_ALPHA_MODE_STRAIGHT: return L"D2D1_ALPHA_MODE_STRAIGHT";
                     case D2D1_ALPHA_MODE_IGNORE: return L"D2D1_ALPHA_MODE_IGNORE";
-                    default: assert(false); return L"<unknown D2D1_ALPHA_MODE_UNKNOWN>";
+                    default: assert(false); return L"<unknown D2D1_ALPHA_MODE>";
                 }
+            }
+
+            template<>
+            static inline std::wstring ToString<CanvasSwapChainRotation>(CanvasSwapChainRotation const& value)
+            {
+                switch (value)
+                {
+                    case CanvasSwapChainRotation::None: return L"CanvasSwapChainRotation::None";
+                    case CanvasSwapChainRotation::Rotate90: return L"CanvasSwapChainRotation::Rotate90";
+                    case CanvasSwapChainRotation::Rotate180: return L"CanvasSwapChainRotation::Rotate180";
+                    case CanvasSwapChainRotation::Rotate270: return L"CanvasSwapChainRotation::Rotate270";
+                    default: assert(false); return L"<unknown CanvasSwapChainRotation>";
+                }
+            }
+
+            template<>
+            static inline std::wstring ToString<Platform::Guid>(Platform::Guid const& value)
+            {
+                Platform::Guid copy = value;
+                return copy.ToString()->Data();
             }
 
             inline bool operator==(Windows::UI::Color const& a, Windows::UI::Color const& b)
             {
                 return a.A == b.A &&
-                    a.R == b.R &&
-                    a.G == b.G &&
-                    a.B == b.B;
+                       a.R == b.R &&
+                       a.G == b.G &&
+                       a.B == b.B;
             }
 
-            inline bool operator==(Microsoft::Graphics::Canvas::Numerics::Matrix3x2 const& a, Microsoft::Graphics::Canvas::Numerics::Matrix3x2 const& b)
+            inline bool operator==(BitmapSize const& a, BitmapSize const& b)
             {
-                return
-                    a.M11 == b.M11 && a.M12 == b.M12 &&
-                    a.M21 == b.M21 && a.M22 == b.M22 &&
-                    a.M31 == b.M31 && a.M32 == b.M32;
+                return a.Width == b.Width &&
+                       a.Height == b.Height;
             }
+
 
             inline bool operator==(Windows::UI::Text::FontWeight const& a, Windows::UI::Text::FontWeight const& b)
             {
@@ -233,9 +280,9 @@ namespace Microsoft
             inline bool operator==(D2D1_RECT_F const& a, D2D1_RECT_F const& b)
             {
                 return a.left == b.left &&
-                    a.top == b.top &&
-                    a.right == b.right &&
-                    a.bottom == b.bottom;
+                       a.top == b.top &&
+                       a.right == b.right &&
+                       a.bottom == b.bottom;
             }
         }
     }
@@ -248,7 +295,7 @@ inline ComPtr<ID3D11Device> CreateD3DDevice()
     D3D_FEATURE_LEVEL featureLevel;
     ComPtr<ID3D11DeviceContext> immediateContext;
 
-    ThrowIfFailed(D3D11CreateDevice(
+    if (FAILED(D3D11CreateDevice(
         nullptr,            // adapter
         D3D_DRIVER_TYPE_WARP,
         nullptr,            // software
@@ -258,13 +305,27 @@ inline ComPtr<ID3D11Device> CreateD3DDevice()
         D3D11_SDK_VERSION,
         &d3dDevice,
         &featureLevel,
-        &immediateContext));
+        &immediateContext)))
+    {
+        // Avoid taking hard dependency on the D3D debug layer.
+        ThrowIfFailed(D3D11CreateDevice(
+            nullptr,            // adapter
+            D3D_DRIVER_TYPE_WARP,
+            nullptr,            // software
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            nullptr,            // feature levels
+            0,                  // feature levels count
+            D3D11_SDK_VERSION,
+            &d3dDevice,
+            &featureLevel,
+            &immediateContext));
+    }
 
     return d3dDevice;
 }
 
 template<typename ACTION_ON_CLOSED_OBJECT>
-void ExpectObjectClosed(ACTION_ON_CLOSED_OBJECT&& fn)
+inline void ExpectObjectClosed(ACTION_ON_CLOSED_OBJECT&& fn)
 {
     Assert::ExpectException<Platform::ObjectDisposedException^>(
         [&]
@@ -284,7 +345,7 @@ void ExpectObjectClosed(ACTION_ON_CLOSED_OBJECT&& fn)
 // more is to attach a debugger.
 //
 template<typename CODE>
-void RunOnUIThread(CODE&& code)
+inline void RunOnUIThread(CODE&& code)
 {
     using namespace Microsoft::WRL::Wrappers;
     using namespace Windows::ApplicationModel::Core;
@@ -329,7 +390,7 @@ void RunOnUIThread(CODE&& code)
 }
 
 template<typename T>
-T WaitExecution(IAsyncOperation<T>^ asyncOperation)
+inline T WaitExecution(IAsyncOperation<T>^ asyncOperation)
 {
     using namespace Microsoft::WRL::Wrappers;
 
@@ -350,21 +411,46 @@ T WaitExecution(IAsyncOperation<T>^ asyncOperation)
     // waiting before event executed
     auto timeout = 1000 * 5;
     auto waitResult = WaitForSingleObjectEx(emptyEvent.Get(), timeout, true);
-    Assert::AreEqual(WAIT_OBJECT_0, waitResult);
+    Assert::AreEqual(WAIT_OBJECT_0, waitResult, L"WaitExecution: WaitForSingleObject timed out.");
 
     return asyncTask.get();
 };
 
+inline void WaitExecution(IAsyncAction^ ayncAction)
+{
+    using namespace Microsoft::WRL::Wrappers;
+
+    Event emptyEvent(CreateEventEx(NULL, NULL, CREATE_EVENT_MANUAL_RESET, EVENT_ALL_ACCESS));
+    if (!emptyEvent.IsValid())
+        throw std::bad_alloc();
+
+    task_options options;
+    options.set_continuation_context(task_continuation_context::use_arbitrary());
+
+    task<void> asyncTask(ayncAction);
+
+    asyncTask.then([&](task<void>)
+    {
+        SetEvent(emptyEvent.Get());
+    }, options);
+
+    // waiting before event executed
+    auto timeout = 1000 * 5;
+    auto waitResult = WaitForSingleObjectEx(emptyEvent.Get(), timeout, true);
+    Assert::AreEqual(WAIT_OBJECT_0, waitResult);
+
+    asyncTask.get();
+};
 
 template<typename T, typename U>
-void AssertTypeName(U^ obj)
+inline void AssertTypeName(U^ obj)
 {
     Assert::AreEqual(T::typeid->FullName, obj->GetType()->FullName);
 }
 
 
 template<typename T, typename U>
-ComPtr<T> GetDXGIInterface(U^ obj)
+inline ComPtr<T> GetDXGIInterface(U^ obj)
 {
     ComPtr<T> dxgi;
     ThrowIfFailed(GetDXGIInterface<T>(obj, &dxgi));
@@ -373,6 +459,45 @@ ComPtr<T> GetDXGIInterface(U^ obj)
 
 
 ComPtr<ID2D1DeviceContext1> CreateTestD2DDeviceContext(CanvasDevice^ device = nullptr);
+
 ComPtr<ID2D1Bitmap1> CreateTestD2DBitmap(D2D1_BITMAP_OPTIONS options, ComPtr<ID2D1DeviceContext1> deviceContext = nullptr);
 
-void VerifyDpiAndAlpha(ComPtr<ID2D1Bitmap1> const& d2dBitmap, float expectedDpi, D2D1_ALPHA_MODE expectedAlphaMode, float dpiTolerance = 0.0f);
+void VerifyDpiAndAlpha(ComPtr<ID2D1Bitmap1> const& d2dBitmap, float expectedDpi, D2D1_ALPHA_MODE expectedAlphaMode);
+
+struct WicBitmapTestFixture
+{
+    ComPtr<ID2D1DeviceContext1> RenderTarget;
+    ComPtr<ID2D1Bitmap1> Bitmap;
+};
+WicBitmapTestFixture CreateWicBitmapTestFixture();
+
+template<typename T>
+inline void ExpectCOMException(HRESULT expectedHR, T&& lambda)
+{
+    try
+    {
+        lambda();
+        Assert::Fail(L"Expected this to throw.");
+    }
+    catch (Platform::COMException^ e)
+    {
+        Assert::AreEqual<HRESULT>(expectedHR, e->HResult);
+    }
+}
+
+template<typename T>
+inline void ExpectCOMException(HRESULT expectedHR, wchar_t const* expectedExceptionText, T&& lambda)
+{
+    try
+    {
+        lambda();
+        Assert::Fail(L"Expected this to throw.");
+    }
+    catch (Platform::COMException^ e)
+    {
+        Assert::AreEqual<HRESULT>(expectedHR, e->HResult);
+
+        std::wstring msg(e->Message->Data());
+        Assert::IsTrue(msg.find(expectedExceptionText) != std::wstring::npos);
+    }
+}

@@ -13,8 +13,6 @@
 #pragma once
 
 #include <DirectXMath.h>
-#include <stdexcept>
-#include <limits>
 
 
 #if defined __cplusplus_winrt && _MSC_VER >= 1900
@@ -30,7 +28,11 @@
 #elif defined __windows2Efoundation2Enumerics_h__
 
 // Raw COM mode using ABI interop (after including windows.foundation.numerics.h).
+#ifdef BUILD_WINDOWS
+#define _WINDOWS_NUMERICS_INTEROP_NAMESPACE_ Windows::Foundation::Numerics
+#else
 #define _WINDOWS_NUMERICS_INTEROP_NAMESPACE_ ABI::Windows::Foundation::Numerics
+#endif
 
 #endif
 
@@ -246,7 +248,7 @@ namespace Windows { namespace Foundation { namespace Numerics
     float distance(float4 const& value1, float4 const& value2);
     float distance_squared(float4 const& value1, float4 const& value2);
     float dot(float4 const& vector1, float4 const& vector2);
-    float4 normalize(float4 const& vector);
+    float4 normalize(float4 const& value);
     float4 (min)(float4 const& value1, float4 const& value2);
     float4 (max)(float4 const& value1, float4 const& value2);
     float4 clamp(float4 const& value1, float4 const& min, float4 const& max);

@@ -88,15 +88,15 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         // ICanvasResourceWrapperNative
         //
 
-        IFACEMETHODIMP GetResource(IUnknown** outResource) override
+        IFACEMETHODIMP GetResource(REFIID iid, void** outResource) override
         {
             return ExceptionBoundary(
                 [&]
                 {
                     CheckAndClearOutPointer(outResource);
 
-                    auto resource = GetResource();
-                    ThrowIfFailed(resource.CopyTo(outResource));
+                    auto& resource = GetResource();
+                    ThrowIfFailed(resource.CopyTo(iid, outResource));
                 });
         }
     };

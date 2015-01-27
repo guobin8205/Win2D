@@ -140,6 +140,7 @@ namespace Microsoft
                 return PointerToString(L#T, value);             \
             }
 
+            TO_STRING(ICanvasControl);
             TO_STRING(ICanvasDevice);
             TO_STRING(ICanvasDrawingSession);
             TO_STRING(ID2D1Brush);
@@ -154,7 +155,11 @@ namespace Microsoft
             TO_STRING(IInspectable);
             TO_STRING(IUnknown);
             TO_STRING(ID2D1StrokeStyle1);
+            TO_STRING(ID2D1Bitmap);
             TO_STRING(ID2D1Bitmap1);
+            TO_STRING(IDXGISurface);
+            TO_STRING(IDXGISwapChain);
+            TO_STRING(ICanvasSwapChain);
 
 #undef TO_STRING
 
@@ -172,6 +177,31 @@ namespace Microsoft
                 ENUM_VALUE(CanvasHardwareAcceleration::On);
                 ENUM_VALUE(CanvasHardwareAcceleration::Off);
                 END_ENUM(CanvasHardwareAcceleration);
+            }
+
+            ENUM_TO_STRING(RunWithDeviceFlags)
+            {
+                ENUM_VALUE(RunWithDeviceFlags::None);
+                ENUM_VALUE(RunWithDeviceFlags::NewlyCreatedDevice);
+                ENUM_VALUE(RunWithDeviceFlags::ResourcesNotCreated);
+                END_ENUM(RunWithDeviceFlags);
+            }
+
+            ENUM_TO_STRING(CanvasCreateResourcesReason)
+            {
+                ENUM_VALUE(CanvasCreateResourcesReason::FirstTime);
+                ENUM_VALUE(CanvasCreateResourcesReason::NewDevice);
+                ENUM_VALUE(CanvasCreateResourcesReason::DpiChanged);
+                END_ENUM(CanvasCreateResourcesReason);
+            }
+
+            ENUM_TO_STRING(CanvasSwapChainRotation)
+            {
+                ENUM_VALUE(CanvasSwapChainRotation::None);
+                ENUM_VALUE(CanvasSwapChainRotation::Rotate90);
+                ENUM_VALUE(CanvasSwapChainRotation::Rotate180);
+                ENUM_VALUE(CanvasSwapChainRotation::Rotate270);
+                END_ENUM(CanvasSwapChainRotation);
             }
 
             template<>
@@ -237,6 +267,22 @@ namespace Microsoft
             }
 
             template<>
+            static inline std::wstring ToString<D2D1_MATRIX_4X4_F>(D2D1_MATRIX_4X4_F const& value)
+            {
+                wchar_t buf[256];
+                ThrowIfFailed(StringCchPrintf(
+                    buf,
+                    _countof(buf),
+                    L"D2D1_MATRIX_4X4_F{_11=%f,_12=%f,_13=%f,_14=%f,_21=%f,_22=%f,_23=%f,_24=%f,_31=%f,_32=%f,_33=%f,_34=%f,_41=%f,_42=%f,_43=%f,_44=%f}",
+                    value._11, value._12, value._13, value._14,
+                    value._21, value._22, value._23, value._24,
+                    value._31, value._32, value._33, value._34,
+                    value._41, value._42, value._43, value._44));
+
+                return buf;
+            }
+
+            template<>
             static inline std::wstring ToString<ABI::Windows::Foundation::Rect>(ABI::Windows::Foundation::Rect const& value)
             {
                 wchar_t buf[256];
@@ -246,6 +292,32 @@ namespace Microsoft
                     L"Rect{X=%f,Y=%f,W=%f,H=%f}",
                     value.X, value.Y,
                     value.Width, value.Height));
+
+                return buf;
+            }
+
+            template<>
+            static inline std::wstring ToString<D2D1_POINT_2U>(D2D1_POINT_2U const& value)
+            {
+                wchar_t buf[256];
+                ThrowIfFailed(StringCchPrintf(
+                    buf,
+                    _countof(buf),
+                    L"D2D1_POINT_2U{X=%f,Y=%f}",
+                    value.x, value.y));
+
+                return buf;
+            }
+
+            template<>
+            static inline std::wstring ToString<D2D1_RECT_U>(D2D1_RECT_U const& value)
+            {
+                wchar_t buf[256];
+                ThrowIfFailed(StringCchPrintf(
+                    buf,
+                    _countof(buf),
+                    L"D2D1_RECT_U{l=%f,t=%f,r=%f,b=%f}",
+                    value.left, value.top, value.right, value.bottom));
 
                 return buf;
             }
@@ -605,12 +677,12 @@ namespace Microsoft
                 END_ENUM(D2D1_INTERPOLATION_MODE);
             }
 
-            ENUM_TO_STRING(CanvasAlphaBehavior)
+            ENUM_TO_STRING(CanvasAlphaMode)
             {
-                ENUM_VALUE(CanvasAlphaBehavior::Ignore);
-                ENUM_VALUE(CanvasAlphaBehavior::Premultiplied);
-                ENUM_VALUE(CanvasAlphaBehavior::Straight);
-                END_ENUM(CanvasAlphaBehavior);
+                ENUM_VALUE(CanvasAlphaMode::Ignore);
+                ENUM_VALUE(CanvasAlphaMode::Premultiplied);
+                ENUM_VALUE(CanvasAlphaMode::Straight);
+                END_ENUM(CanvasAlphaMode);
             }
 
             ENUM_TO_STRING(CanvasColorSpace)
@@ -629,6 +701,24 @@ namespace Microsoft
                 ENUM_VALUE(CanvasBufferPrecision::Precision16Float);
                 ENUM_VALUE(CanvasBufferPrecision::Precision32Float);
                 END_ENUM(CanvasBufferPrecision);
+            }
+
+            ENUM_TO_STRING(D2D1_COMPOSITE_MODE)
+            {
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_SOURCE_OVER);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_DESTINATION_OVER);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_SOURCE_IN);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_DESTINATION_IN);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_SOURCE_OUT);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_DESTINATION_OUT);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_SOURCE_ATOP);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_DESTINATION_ATOP);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_XOR);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_PLUS);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_SOURCE_COPY);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_BOUNDED_SOURCE_COPY);
+                ENUM_VALUE(D2D1_COMPOSITE_MODE_MASK_INVERT);
+                END_ENUM(D2D1_COMPOSITE_MODE);
             }
 
             template<typename T>
@@ -659,6 +749,11 @@ namespace Microsoft
             TO_STRING_AS_INT(DWRITE_FONT_WEIGHT);
             TO_STRING_AS_INT(CanvasDrawTextOptions);
             TO_STRING_AS_INT(D2D1_DRAW_TEXT_OPTIONS);
+            TO_STRING_AS_INT(DirectXPixelFormat);
+            TO_STRING_AS_INT(DXGI_FORMAT);
+            TO_STRING_AS_INT(D2D1_BITMAP_OPTIONS);
+            TO_STRING_AS_INT(D2D1_ALPHA_MODE);
+            TO_STRING_AS_INT(D2D1_DEVICE_CONTEXT_OPTIONS);
         }
 
         inline bool operator==(D2D1_POINT_2F const& a, D2D1_POINT_2F const& b)
@@ -737,6 +832,20 @@ inline bool operator==(D2D1_MATRIX_3X2_F const& a, D2D1_MATRIX_3X2_F const& b)
         a._31 == b._31 && a._32 == b._32;
 }
 
+inline bool operator==(D2D1_MATRIX_4X4_F const& a, D2D1_MATRIX_4X4_F const& b)
+{
+    return
+        a._11 == b._11 && a._12 == b._12 && a._13 == b._13 && a._14 == b._14 &&
+        a._21 == b._21 && a._22 == b._22 && a._23 == b._23 && a._24 == b._24 &&
+        a._31 == b._31 && a._32 == b._32 && a._33 == b._33 && a._34 == b._34 &&
+        a._41 == b._41 && a._42 == b._42 && a._43 == b._43 && a._44 == b._44;
+}
+
+inline bool operator==(D2D1_POINT_2U const& a, D2D1_POINT_2U const& b)
+{
+    return a.x == b.x && a.y == b.y;
+}
+
 #define ASSERT_IMPLEMENTS_INTERFACE(obj, INTERFACE)                     \
     {                                                                   \
         ComPtr<INTERFACE> iface;                                        \
@@ -763,6 +872,12 @@ inline void ValidateStoredErrorState(HRESULT expectedHR, wchar_t const* expected
 {
     ComPtr<IRestrictedErrorInfo> errorInfo;
     ThrowIfFailed(GetRestrictedErrorInfo(&errorInfo));
+
+    if (expectedHR == S_OK)
+    {
+        Assert::IsNull(errorInfo.Get());
+        return;
+    }
 
     BSTR description = nullptr;
     BSTR restrictedDescription = nullptr;
@@ -794,4 +909,13 @@ void AssertClassName(ComPtr<T> obj, wchar_t const* expectedClassName)
     ThrowIfFailed(inspectable->GetRuntimeClassName(className.GetAddressOf()));
     
     Assert::AreEqual(expectedClassName, static_cast<wchar_t const*>(className));
+}
+
+
+template<typename T, typename U>
+ComPtr<T> GetWrappedResource(U&& wrapper)
+{
+    ComPtr<T> resource;
+    ThrowIfFailed(As<ICanvasResourceWrapperNative>(wrapper)->GetResource(IID_PPV_ARGS(&resource)));
+    return resource;
 }

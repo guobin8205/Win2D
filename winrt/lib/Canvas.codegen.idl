@@ -41,12 +41,12 @@ namespace Microsoft.Graphics.Canvas
     } CanvasAntialiasing;
 
     [version(VERSION)]
-    typedef enum CanvasAlphaBehavior
+    typedef enum CanvasAlphaMode
     {
         Premultiplied = (int)0,
         Straight = (int)1,
         Ignore = (int)2
-    } CanvasAlphaBehavior;
+    } CanvasAlphaMode;
 
     [version(VERSION)]
     typedef enum CanvasEdgeBehavior
@@ -82,6 +82,24 @@ namespace Microsoft.Graphics.Canvas
         Grayscale = (int)2,
         Aliased = (int)3
     } CanvasTextAntialiasing;
+
+    [version(VERSION)]
+    typedef enum CanvasComposite
+    {
+        SourceOver = (int)0,
+        DestinationOver = (int)1,
+        SourceIn = (int)2,
+        DestinationIn = (int)3,
+        SourceOut = (int)4,
+        DestinationOut = (int)5,
+        SourceAtop = (int)6,
+        DestinationAtop = (int)7,
+        Xor = (int)8,
+        Add = (int)9,
+        Copy = (int)10,
+        BoundedCopy = (int)11,
+        MaskInvert = (int)12
+    } CanvasComposite;
 
     [version(VERSION)]
     typedef enum CanvasBufferPrecision

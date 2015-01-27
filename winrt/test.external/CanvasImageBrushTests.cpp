@@ -13,6 +13,7 @@
 #include "pch.h"
 
 using namespace Microsoft::Graphics::Canvas;
+using namespace Microsoft::Graphics::Canvas::DirectX;
 using namespace Windows::UI;
 
 static CanvasBitmap^ CreateArbitraryCanvasBitmap(CanvasDevice^ device)
@@ -22,7 +23,7 @@ static CanvasBitmap^ CreateArbitraryCanvasBitmap(CanvasDevice^ device)
         ref new Platform::Array<Color>(0),
         0,
         0,
-        CanvasAlphaBehavior::Premultiplied);
+        CanvasAlphaMode::Premultiplied);
 }
 
 static ICanvasImage^ CreateArbitraryEffect()
@@ -69,7 +70,7 @@ public:
 
     TEST_METHOD(CanvasImageBrush_ImageProperty_WithRenderTarget)
     {
-        auto anyRenderTarget = ref new CanvasRenderTarget(m_device, Size{1,1});
+        auto anyRenderTarget = ref new CanvasRenderTarget(m_device, 1, 1, DEFAULT_DPI);
 
         auto brush = ref new CanvasImageBrush(m_device);
         brush->Image = anyRenderTarget;

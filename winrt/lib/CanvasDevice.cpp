@@ -188,11 +188,11 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         CheckInPointer(direct3DDevice);
         CheckInPointer(d2dFactory);
 
-        ComPtr<IDXGIInterfaceAccess> dxgiInterfaceAccess;
+        ComPtr<IDirect3DDxgiInterfaceAccess> dxgiInterfaceAccess;
         ThrowIfFailed(direct3DDevice->QueryInterface(IID_PPV_ARGS(&dxgiInterfaceAccess)));
 
         ComPtr<IDXGIDevice3> dxgiDevice;
-        ThrowIfFailed(dxgiInterfaceAccess->GetDXGIInterface(IID_PPV_ARGS(&dxgiDevice)));
+        ThrowIfFailed(dxgiInterfaceAccess->GetInterface(IID_PPV_ARGS(&dxgiDevice)));
 
         ComPtr<ID2D1Device1> d2dDevice;
         ThrowIfFailed(d2dFactory->CreateDevice(dxgiDevice.Get(), &d2dDevice));
@@ -329,8 +329,8 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
     }
 
     IFACEMETHODIMP CanvasDeviceFactory::CreateFromDirect3D11Device(
-        CanvasDebugLevel debugLevel,
         IDirect3DDevice* direct3DDevice,
+        CanvasDebugLevel debugLevel,
         ICanvasDevice** canvasDevice)
     {
         return ExceptionBoundary(
@@ -409,6 +409,23 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             });
     }
 
+
+    IFACEMETHODIMP CanvasDevice::get_MaximumBitmapSizeInPixels(int32_t* value)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                CheckInPointer(value);
+
+                auto& deviceContext = m_d2dResourceCreationDeviceContext.EnsureNotClosed();
+                UINT32 maximumBitmapSize = deviceContext->GetMaximumBitmapSize();
+
+                assert(maximumBitmapSize <= INT_MAX);
+
+                *value = static_cast<int32_t>(maximumBitmapSize);
+            });
+    }
+
     IFACEMETHODIMP CanvasDevice::Close()
     {
         HRESULT hr = ResourceWrapper::Close();
@@ -425,6 +442,13 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         return GetResource();
     }
 
+    ComPtr<ID2D1DeviceContext1> CanvasDevice::CreateDeviceContext()
+    {
+        ComPtr<ID2D1DeviceContext1> dc;
+        ThrowIfFailed(GetResource()->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc));
+        return dc;
+    }
+
     ComPtr<ID2D1SolidColorBrush> CanvasDevice::CreateSolidColorBrush(D2D1_COLOR_F const& color)
     {
         // TODO #802: this isn't very threadsafe - we should really have a different
@@ -439,17 +463,14 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
     ComPtr<ID2D1Bitmap1> CanvasDevice::CreateBitmapFromWicResource(
         IWICFormatConverter* wicConverter,
-        CanvasAlphaBehavior alpha)
+        CanvasAlphaMode alpha,
+        float dpi)
     {
         auto deviceContext = m_d2dResourceCreationDeviceContext.EnsureNotClosed();
 
         D2D1_BITMAP_PROPERTIES1 bitmapProperties = D2D1::BitmapProperties1();
         bitmapProperties.pixelFormat.alphaMode = ToD2DAlphaMode(alpha);
-
-        double dpiX, dpiY;
-        ThrowIfFailed(wicConverter->GetResolution(&dpiX, &dpiY));
-        bitmapProperties.dpiX = static_cast<float>(dpiX);
-        bitmapProperties.dpiY = static_cast<float>(dpiY);
+        bitmapProperties.dpiX = bitmapProperties.dpiY = dpi;
 
         ComPtr<ID2D1Bitmap1> bitmap;
         ThrowIfFailed(deviceContext->CreateBitmapFromWicBitmap(wicConverter, &bitmapProperties, &bitmap));
@@ -462,7 +483,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         float width,
         float height,
         DirectXPixelFormat format,
-        CanvasAlphaBehavior alpha,
+        CanvasAlphaMode alpha,
         float dpi)
     {
         auto deviceContext = m_d2dResourceCreationDeviceContext.EnsureNotClosed();
@@ -473,10 +494,13 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         bitmapProperties.dpiX = dpi;
         bitmapProperties.dpiY = dpi;
         bitmapProperties.pixelFormat.format = static_cast<DXGI_FORMAT>(format);
-        bitmapProperties.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+        bitmapProperties.pixelFormat.alphaMode = ToD2DAlphaMode(alpha);
+
+        auto pixelWidth = static_cast<uint32_t>(DipsToPixels(width, dpi));
+        auto pixelHeight = static_cast<uint32_t>(DipsToPixels(height, dpi));
 
         ThrowIfFailed(deviceContext->CreateBitmap(
-            ToD2DSizeU(width, height), 
+            D2D1_SIZE_U{ pixelWidth, pixelHeight },
             nullptr, // data 
             0,  // data pitch
             &bitmapProperties, 
@@ -536,7 +560,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             });
     }
 
-    IFACEMETHODIMP CanvasDevice::GetDXGIInterface(REFIID iid, void** p)
+    IFACEMETHODIMP CanvasDevice::GetInterface(REFIID iid, void** p)
     {
         return ExceptionBoundary(
             [&]
@@ -554,7 +578,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         CanvasColorSpace preInterpolationSpace,
         CanvasColorSpace postInterpolationSpace,
         CanvasBufferPrecision bufferPrecision,
-        CanvasAlphaBehavior alphaBehavior)
+        CanvasAlphaMode alphaMode)
     {
         auto deviceContext = m_d2dResourceCreationDeviceContext.EnsureNotClosed();
 
@@ -574,7 +598,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             static_cast<D2D1_COLOR_SPACE>(postInterpolationSpace),
             ToD2DBufferPrecision(bufferPrecision),
             static_cast<D2D1_EXTEND_MODE>(edgeBehavior),
-            ToD2DColorInterpolation(alphaBehavior),
+            ToD2DColorInterpolation(alphaMode),
             gradientStopCollection.GetAddressOf()));
 
         return gradientStopCollection;
@@ -617,6 +641,61 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             radialGradientBrush.GetAddressOf()));
 
         return radialGradientBrush;
+    }
+
+
+    ComPtr<IDXGISwapChain2> CanvasDevice::CreateSwapChain(
+        int32_t widthInPixels,
+        int32_t heightInPixels,
+        DirectXPixelFormat format,
+        int32_t bufferCount,
+        CanvasAlphaMode alphaMode)
+    {
+        auto& dxgiDevice = m_dxgiDevice.EnsureNotClosed();
+
+        ComPtr<IDXGIAdapter2> dxgiAdapter;
+        ThrowIfFailed(dxgiDevice->GetParent(IID_PPV_ARGS(&dxgiAdapter)));
+
+        ComPtr<IDXGIFactory2> dxgiFactory;
+        ThrowIfFailed(dxgiAdapter->GetParent(IID_PPV_ARGS(&dxgiFactory)));
+
+        ThrowIfNegative(widthInPixels);
+        ThrowIfNegative(heightInPixels);
+        ThrowIfNegative(bufferCount);
+
+        DXGI_SWAP_CHAIN_DESC1 swapChainDesc = { };
+        swapChainDesc.Width = static_cast<UINT>(widthInPixels);
+        swapChainDesc.Height = static_cast<UINT>(heightInPixels);
+        swapChainDesc.Format = static_cast<DXGI_FORMAT>(format);
+        swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        swapChainDesc.SampleDesc.Count = 1;
+        swapChainDesc.SampleDesc.Quality = 0;
+        swapChainDesc.BufferCount = static_cast<UINT>(bufferCount);
+        swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
+        swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        swapChainDesc.AlphaMode = ToDxgiAlphaMode(alphaMode);
+
+        ComPtr<IDXGISwapChain1> swapChainBase;
+        ThrowIfFailed(dxgiFactory->CreateSwapChainForComposition(
+            dxgiDevice.Get(), 
+            &swapChainDesc, 
+            nullptr, // restrictToOutput
+            &swapChainBase));
+
+        auto swapChain = As<IDXGISwapChain2>(swapChainBase);
+
+        return swapChain;
+    }
+
+
+    ComPtr<ID2D1CommandList> CanvasDevice::CreateCommandList()
+    {
+        auto deviceContext = m_d2dResourceCreationDeviceContext.EnsureNotClosed();
+
+        ComPtr<ID2D1CommandList> cl;
+        ThrowIfFailed(deviceContext->CreateCommandList(&cl));
+
+        return cl;
     }
 
     ActivatableClassWithFactory(CanvasDevice, CanvasDeviceFactory);

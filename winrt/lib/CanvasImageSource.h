@@ -24,7 +24,8 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         virtual ComPtr<ICanvasDrawingSession> Create(
             ICanvasDevice* owner,
             ISurfaceImageSourceNativeWithD2D* sisNative,
-            Rect const& updateRect,
+            Color const& clearColor,
+            RECT const& updateRectangle,
             float dpi) const = 0;
     };
 
@@ -39,15 +40,23 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         CanvasImageSourceFactory();
 
         IFACEMETHOD(Create)(
-            _In_         ICanvasResourceCreator* resourceCreator,
-            _In_         int32_t widthInPixels,
-            _In_         int32_t heightInPixels,
+            _In_         ICanvasResourceCreatorWithDpi* resourceCreator,
+            _In_         float width,
+            _In_         float height,
             _COM_Outptr_ ICanvasImageSource** imageSource) override;
 
-        IFACEMETHOD(CreateWithBackground)(
+        IFACEMETHOD(CreateWithDpi)(
             _In_         ICanvasResourceCreator* resourceCreator,
-            _In_         int32_t widthInPixels,
-            _In_         int32_t heightInPixels,
+            _In_         float width,
+            _In_         float height,
+            _In_         float dpi,
+            _COM_Outptr_ ICanvasImageSource** imageSource) override;
+
+        IFACEMETHOD(CreateWithDpiAndBackground)(
+            _In_         ICanvasResourceCreator* resourceCreator,
+            _In_         float width,
+            _In_         float height,
+            _In_         float dpi,
             _In_         CanvasBackground background,
             _COM_Outptr_ ICanvasImageSource** imageSource) override;
     };
@@ -61,28 +70,29 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
         ComPtr<ICanvasDevice> m_device;
         std::shared_ptr<ICanvasImageSourceDrawingSessionFactory> m_drawingSessionFactory;
-        const int32_t m_widthInPixels;
-        const int32_t m_heightInPixels;
+        const float m_width;
+        const float m_height;
+        const float m_dpi;
+        const CanvasBackground m_background;
 
     public:
         CanvasImageSource(
             _In_ ICanvasResourceCreator* resourceCreator,
-            _In_ int32_t widthInPixels,
-            _In_ int32_t heightInPixels,
+            _In_ float width,
+            _In_ float height,
+            _In_ float dpi,
             _In_ CanvasBackground background,
             _In_ ISurfaceImageSourceFactory* surfaceImageSourceFactory,
             _In_ std::shared_ptr<ICanvasImageSourceDrawingSessionFactory> drawingSessionFactory);
 
         IFACEMETHOD(CreateDrawingSession)(
+            _In_         Color clearColor,
             _COM_Outptr_ ICanvasDrawingSession** drawingSession) override;
 
         IFACEMETHOD(CreateDrawingSessionWithUpdateRectangle)(
+            _In_         Color clearColor,
             _In_         Rect updateRectangle,
             _COM_Outptr_ ICanvasDrawingSession** drawingSession) override;
-
-        IFACEMETHOD(CreateDrawingSessionWithDpi)(
-            float dpi,
-            _COM_Outptr_ ICanvasDrawingSession** drawingSession);
 
         IFACEMETHOD(get_Device)(
             _COM_Outptr_ ICanvasDevice** value) override;
@@ -90,17 +100,32 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         IFACEMETHOD(put_Device)(
             _In_ ICanvasDevice* value) override;
 
+        IFACEMETHOD(get_Dpi)(
+            _Out_ float* dpi) override;
+
+        IFACEMETHOD(ConvertPixelsToDips)(
+            _In_  int pixels,
+            _Out_ float* dips) override;
+
+        IFACEMETHOD(ConvertDipsToPixels)(
+            _In_  float dips, 
+            _Out_ int* pixels) override;
+
+        IFACEMETHOD(get_SizeInPixels)(
+            _Out_ BitmapSize* size) override;
+
+        IFACEMETHOD(get_Size)(
+            _Out_ ABI::Windows::Foundation::Size* size) override;
+
+        IFACEMETHOD(get_Background)(
+            _Out_ CanvasBackground* value) override;
+
     private:
         void CreateBaseClass(
             ISurfaceImageSourceFactory* surfaceImageSourceFactory,
             bool isOpaque);
 
         void SetResourceCreator(ICanvasResourceCreator* resourceCreator);
-
-        IFACEMETHOD(CreateDrawingSessionWithUpdateRectangleAndDpi)(
-            Rect updateRectangle,
-            float dpi,
-            _COM_Outptr_ ICanvasDrawingSession** drawingSession);
     };
 
 
@@ -120,7 +145,8 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         virtual ComPtr<ICanvasDrawingSession> Create(
             ICanvasDevice* owner,
             ISurfaceImageSourceNativeWithD2D* sisNative,
-            Rect const& updateRect,
+            Color const& clearColor,
+            RECT const& updateRectangle,
             float dpi) const override;
     };
 }}}}

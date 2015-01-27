@@ -19,5 +19,18 @@
 // now, simple C++ constants are "good enough"(tm).
 
 
+STRING(EffectNullInput, L"Effect input #%d is null.")
+STRING(EffectNullProperty, L"Effect property #%d is null.")
 STRING(EffectWrongInputType, L"Effect input #%d is an unsupported type. To draw an effect using Win2D, all its inputs must be Win2D ICanvasImage objects.")
-STRING(ImageBrushRequiresSourceRectangle, L"When using image types other than CanvasBitmap, the CanvasImageBrush.SourceRectangle property must be set to a non-null value.")
+STRING(EffectWrongPropertyType, L"Effect property #%d is the wrong type for this effect.")
+STRING(ImageBrushRequiresSourceRectangle, L"When using image types other than CanvasBitmap, CanvasImageBrush.SourceRectangle must not be null.")
+STRING(UnrecognizedImageFileExtension, L"When saving a CanvasBitmap without specifying a CanvasBitmapFileFormat, the file name must include a recognized file extension such as '.jpeg' or '.png'.");
+STRING(WrongArrayLength, L"The array was expected to be of size %d; actual array was of size %d.")
+STRING(AutoFileFormatNotAllowed, L"The option CanvasFileFormat.Auto is not allowed when saving to a stream.")
+STRING(CanvasDeviceGetDeviceWhenNotCreated, L"The CanvasControl does not currently have a CanvasDevice associated with it. "
+    L"Ensure that resources are created from a CreateResources or Draw event handler.");
+STRING(PixelColorsFormatRestriction, L"This method only supports resources with pixel format DirectXPixelFormat::B8G8R8A8UIntNormalized.")
+STRING(MultipleAsyncCreateResourcesNotSupported, L"Only one asynchronous CreateResources action can be tracked at a time.")
+STRING(ResourceTrackerWrongDevice, L"Existing resource wrapper is associated with a different device.")
+STRING(ResourceTrackerWrongDpi, L"Existing resource wrapper has a different DPI.")
+STRING(CommandListCannotBeDrawnToAfterItHasBeenUsed, L"CanvasCommandList.CreateDrawingSession cannot be called after the CanvasCommandList has been used as an image.")

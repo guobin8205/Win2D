@@ -50,18 +50,55 @@ public:
 };
 
 //
+// Specialized HResultException for the various device lost errors.
+//
+class DeviceLostException : public HResultException
+{
+protected:
+    explicit DeviceLostException(HRESULT hr)
+        : HResultException(hr)
+    {
+        assert(IsDeviceLostHResult(hr));
+    }
+
+public:
+    static bool IsDeviceLostHResult(HRESULT hr)
+    {
+        switch (hr)
+        {
+        case DXGI_ERROR_DEVICE_HUNG:
+        case DXGI_ERROR_DEVICE_REMOVED:
+        case DXGI_ERROR_DEVICE_RESET:
+        case DXGI_ERROR_DRIVER_INTERNAL_ERROR:
+        case DXGI_ERROR_INVALID_CALL:
+        case D2DERR_RECREATE_TARGET:
+            return true;
+
+        default:
+            return false;
+        }
+    }
+
+    __declspec(noreturn)
+    friend void ThrowHR(HRESULT);
+};
+
+//
 // Throws an exception for the given HRESULT.
 //
 __declspec(noreturn) __declspec(noinline)
 inline void ThrowHR(HRESULT hr)
 {
-    throw HResultException(hr);
+    if (DeviceLostException::IsDeviceLostHResult(hr))
+        throw DeviceLostException(hr);
+    else
+        throw HResultException(hr);
 }
 
 //
 // Throws the appropriate exception for the given HRESULT, attaching a custom error message
-// string. To avoid leaks, the message string should be owned by an RAII  wrapper such as
-// WinString. We don't take this parameter directly as a WinString  to break what would
+// string. To avoid leaks, the message string should be owned by an RAII wrapper such as
+// WinString. We don't take this parameter directly as a WinString to break what would
 // otherwise be a circular dependency (WinString uses ErrorHandling.h in its implementation).
 //
 __declspec(noreturn) __declspec(noinline)
@@ -92,6 +129,13 @@ inline void ThrowIfNullPointer(T* ptr, HRESULT hrToThrow)
 {
     if (ptr == nullptr)
         ThrowHR(hrToThrow);
+}
+
+template<typename T>
+inline void ThrowIfNegative(T value)
+{
+    if (value < 0)
+        ThrowHR(E_INVALIDARG);
 }
 
 //
@@ -156,4 +200,3 @@ HRESULT ExceptionBoundary(CALLABLE&& fn)
         return E_UNEXPECTED;
     }
 }
-

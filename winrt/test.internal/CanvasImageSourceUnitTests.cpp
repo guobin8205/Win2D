@@ -12,11 +12,12 @@
 
 #include "pch.h"
 
+#include "CanvasControlTestAdapter.h"
 
 TEST_CLASS(CanvasImageSourceUnitTests)
 {
 public:
-    TEST_METHOD(CanvasImageSourceConstruction)
+    TEST_METHOD_EX(CanvasImageSourceConstruction)
     {
         //
         // On construction the CanvasImageSource is expected to:
@@ -84,32 +85,29 @@ public:
                 *value = device.Detach();
             };
 
-        bool mockSetDeviceCalled = false;
-        mockSurfaceImageSource->MockSetDevice =
+        mockSurfaceImageSource->SetDeviceMethod.SetExpectedCalls(1, 
             [&](IUnknown* actualDevice)
-        {
-            Assert::IsFalse(mockSetDeviceCalled);
+            {
+                ComPtr<IUnknown> expectedDevice;
+                ThrowIfFailed(mockD2DDevice.As(&expectedDevice));
 
-            ComPtr<IUnknown> expectedDevice;
-            ThrowIfFailed(mockD2DDevice.As(&expectedDevice));
-
-            Assert::AreEqual(expectedDevice.Get(), actualDevice);
-            mockSetDeviceCalled = true;
-        };
+                Assert::AreEqual(expectedDevice.Get(), actualDevice);
+                return S_OK;
+            });
 
         //
         // Actually create the CanvasImageSource
         //
         auto canvasImageSource = Make<CanvasImageSource>(
             mockCanvasDevice.Get(),
-            expectedWidth,
-            expectedHeight,
+            (float)expectedWidth,
+            (float)expectedHeight,
+            DEFAULT_DPI,
             expectedBackground,
             mockSurfaceImageSourceFactory.Get(),
             std::make_shared<MockCanvasImageSourceDrawingSessionFactory>());
         
         Assert::IsTrue(mockCreateInstanceCalled);
-        Assert::IsTrue(mockSetDeviceCalled);
         
         //
         // Verify the composition relationship between the CanvasImageSource and
@@ -122,17 +120,22 @@ public:
         ComPtr<IInspectable> expectedComposableBase;
         ThrowIfFailed(mockSurfaceImageSource.As(&expectedComposableBase));
         Assert::AreEqual(canvasImageSource->GetComposableBase().Get(), expectedComposableBase.Get());
+
+        CanvasBackground actualBackground;
+        ThrowIfFailed(canvasImageSource->get_Background(&actualBackground));
+        Assert::AreEqual(CanvasBackground::Opaque, actualBackground);
     }
 
-    TEST_METHOD(CanvasImageSourceGetDevice)
+    TEST_METHOD_EX(CanvasImageSourceGetDevice)
     {
         ComPtr<ICanvasDevice> expectedCanvasDevice = Make<StubCanvasDevice>();
         auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>();
 
         auto canvasImageSource = Make<CanvasImageSource>(
             static_cast<ICanvasResourceCreator*>(static_cast<StubCanvasDevice*>(expectedCanvasDevice.Get())),
-            1,
-            1,
+            1.0f,
+            1.0f,
+            DEFAULT_DPI,
             CanvasBackground::Transparent,
             stubSurfaceImageSourceFactory.Get(),
             std::make_shared<MockCanvasImageSourceDrawingSessionFactory>());
@@ -146,7 +149,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, canvasImageSource->get_Device(nullptr));
     }
 
-    TEST_METHOD(CanvasImageSourcePutDevice)
+    TEST_METHOD_EX(CanvasImageSourcePutDevice)
     {
         auto firstCanvasDevice = Make<StubCanvasDevice>();
 
@@ -154,12 +157,13 @@ public:
         auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>(mockSurfaceImageSource.Get());
 
         // On the initial make we know that this succeeds
-        mockSurfaceImageSource->MockSetDevice = [&](IUnknown*) {};
+        mockSurfaceImageSource->SetDeviceMethod.AllowAnyCall();
 
         auto canvasImageSource = Make<CanvasImageSource>(
             firstCanvasDevice.Get(),
-            1,
-            1,
+            1.0f,
+            1.0f,
+            DEFAULT_DPI,
             CanvasBackground::Transparent,
             stubSurfaceImageSourceFactory.Get(),
             std::make_shared<MockCanvasImageSourceDrawingSessionFactory>());
@@ -169,18 +173,14 @@ public:
 
         // When the new device is set we expect SetDevice to be called with the
         // new D2D device
-        bool setDeviceCalled = false;
-        mockSurfaceImageSource->MockSetDevice = 
+        mockSurfaceImageSource->SetDeviceMethod.SetExpectedCalls(1,
             [&](IUnknown* actualDevice)
             {
-                Assert::IsFalse(setDeviceCalled);
                 Assert::AreEqual(expectedD2DDevice.Get(), actualDevice);
-                setDeviceCalled = true;
-            };
+                return S_OK;
+            });
 
         ThrowIfFailed(canvasImageSource->put_Device(secondCanvasDevice.Get()));
-
-        Assert::IsTrue(setDeviceCalled);
 
         // Verify that get_Device also returns the correct device.
         ComPtr<ICanvasDevice> expectedCanvasDevice;
@@ -197,18 +197,13 @@ public:
         auto thirdCanvasDevice = Make<StubCanvasDevice>();
 
         // Simulate SetDevice failing
-        setDeviceCalled = false;
-        mockSurfaceImageSource->MockSetDevice = 
-            [&](IUnknown* actualDevice)
+        mockSurfaceImageSource->SetDeviceMethod.SetExpectedCalls(1,
+            [](IUnknown*)
             {
-                Assert::IsFalse(setDeviceCalled);
-                setDeviceCalled = true;
-                ThrowHR(E_FAIL);
-            };
+                return E_FAIL;
+            });
 
         Assert::IsTrue(FAILED(canvasImageSource->put_Device(secondCanvasDevice.Get())));
-
-        Assert::IsTrue(setDeviceCalled);
 
         // Verify that get_Device returns the original device since part of
         // put_Device process failed.
@@ -223,163 +218,350 @@ public:
         // Calling put_Device with nullptr should fail appropriately
         Assert::AreEqual(E_INVALIDARG, canvasImageSource->put_Device(nullptr));
     }
+
+    TEST_METHOD_EX(CanvasImageSource_CreateFromCanvasControl)
+    {
+        auto canvasControlAdapter = std::make_shared<CanvasControlTestAdapter>();
+        
+        auto canvasControl = Make<CanvasControl>(canvasControlAdapter);
+
+        // Get the control to a point where it has created the device.
+        canvasControlAdapter->CreateCanvasImageSourceMethod.AllowAnyCall();
+        auto userControl = dynamic_cast<StubUserControl*>(As<IUserControl>(canvasControl).Get());
+        ThrowIfFailed(userControl->LoadedEventSource->InvokeAll(nullptr, nullptr));
+        canvasControlAdapter->RaiseCompositionRenderingEvent();
+        
+        auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>();
+
+        auto canvasImageSource = Make<CanvasImageSource>(
+            canvasControl.Get(),
+            123.0f,
+            456.0f,
+            DEFAULT_DPI,
+            CanvasBackground::Opaque,
+            stubSurfaceImageSourceFactory.Get(),
+            std::make_shared<MockCanvasImageSourceDrawingSessionFactory>());
+
+        //
+        // Verify that the image source and the control are compatible.
+        //
+        ComPtr<ICanvasDevice> controlDevice;
+        ThrowIfFailed(canvasControl->get_Device(&controlDevice));
+
+        ComPtr<ICanvasDevice> sisDevice;
+        ThrowIfFailed(canvasImageSource->get_Device(&sisDevice));
+
+        Assert::AreEqual(controlDevice.Get(), sisDevice.Get());
+    }
+
+    TEST_METHOD_EX(CanvasImageSource_CreateFromDrawingSession)
+    {
+        ComPtr<StubCanvasDevice> canvasDevice = Make<StubCanvasDevice>();
+
+        ComPtr<StubD2DDeviceContextWithGetFactory> d2dDeviceContext =
+            Make<StubD2DDeviceContextWithGetFactory>();
+
+        auto manager = std::make_shared<CanvasDrawingSessionManager>();
+        ComPtr<CanvasDrawingSession> drawingSession = manager->Create(
+            canvasDevice.Get(),
+            d2dDeviceContext.Get(),
+            std::make_shared<StubCanvasDrawingSessionAdapter>());
+
+        auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>();
+
+        auto canvasImageSource = Make<CanvasImageSource>(
+            drawingSession.Get(),
+            5.0f,
+            10.0f,
+            DEFAULT_DPI,
+            CanvasBackground::Opaque,
+            stubSurfaceImageSourceFactory.Get(),
+            std::make_shared<MockCanvasImageSourceDrawingSessionFactory>());
+
+        //
+        // Verify that the image source and the drawing session are compatible.
+        //
+        ComPtr<ICanvasDevice> sisDevice;
+        ThrowIfFailed(canvasImageSource->get_Device(&sisDevice));
+
+        Assert::AreEqual(static_cast<ICanvasDevice*>(canvasDevice.Get()), sisDevice.Get());
+    }
+
+    TEST_METHOD_EX(CanvasImageSource_DpiProperties)
+    {
+        const float dpi = 144;
+
+        auto canvasDevice = Make<StubCanvasDevice>();
+        auto d2dDeviceContext = Make<StubD2DDeviceContextWithGetFactory>();
+        auto manager = std::make_shared<CanvasDrawingSessionManager>();
+        auto resourceCreator = manager->Create(canvasDevice.Get(), d2dDeviceContext.Get(), std::make_shared<StubCanvasDrawingSessionAdapter>());
+        auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>();
+        auto mockDrawingSessionFactory = std::make_shared<MockCanvasImageSourceDrawingSessionFactory>();
+        auto canvasImageSource = Make<CanvasImageSource>(resourceCreator.Get(), 1.0f, 1.0f, dpi, CanvasBackground::Opaque, stubSurfaceImageSourceFactory.Get(), mockDrawingSessionFactory);
+
+        float actualDpi = 0;
+        ThrowIfFailed(canvasImageSource->get_Dpi(&actualDpi));
+        Assert::AreEqual(dpi, actualDpi);
+
+        const float testValue = 100;
+
+        int pixels = 0;
+        ThrowIfFailed(canvasImageSource->ConvertDipsToPixels(testValue, &pixels));
+        Assert::AreEqual((int)(testValue * dpi / DEFAULT_DPI), pixels);
+
+        float dips = 0;
+        ThrowIfFailed(canvasImageSource->ConvertPixelsToDips((int)testValue, &dips));
+        Assert::AreEqual(testValue * DEFAULT_DPI / dpi, dips);
+    }
+
+    TEST_METHOD_EX(CanvasImageSource_PropagatesDpiToDrawingSession)
+    {
+        const float expectedDpi = 144;
+
+        auto canvasDevice = Make<StubCanvasDevice>();
+        auto d2dDeviceContext = Make<StubD2DDeviceContextWithGetFactory>();
+        auto manager = std::make_shared<CanvasDrawingSessionManager>();
+        auto resourceCreator = manager->Create(canvasDevice.Get(), d2dDeviceContext.Get(), std::make_shared<StubCanvasDrawingSessionAdapter>());
+        auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>();
+        auto mockDrawingSessionFactory = std::make_shared<MockCanvasImageSourceDrawingSessionFactory>();
+        auto canvasImageSource = Make<CanvasImageSource>(resourceCreator.Get(), 1.0f, 1.0f, expectedDpi, CanvasBackground::Opaque, stubSurfaceImageSourceFactory.Get(), mockDrawingSessionFactory);
+
+        mockDrawingSessionFactory->CreateMethod.SetExpectedCalls(1, [&](ICanvasDevice*, ISurfaceImageSourceNativeWithD2D*, Color const&, RECT const&, float dpi)
+        {
+            Assert::AreEqual(expectedDpi, dpi);
+            return nullptr;
+        });
+
+        ComPtr<ICanvasDrawingSession> drawingSession;
+        ThrowIfFailed(canvasImageSource->CreateDrawingSession(Color{}, &drawingSession));
+    }
+
+    TEST_METHOD_EX(CanvasImageSource_SizeProperties)
+    {
+        const float width = 123;
+        const float height = 456;
+        const float dpi = 144;
+
+        auto canvasDevice = Make<StubCanvasDevice>();
+        auto d2dDeviceContext = Make<StubD2DDeviceContextWithGetFactory>();
+        auto manager = std::make_shared<CanvasDrawingSessionManager>();
+        auto resourceCreator = manager->Create(canvasDevice.Get(), d2dDeviceContext.Get(), std::make_shared<StubCanvasDrawingSessionAdapter>());
+        auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>();
+        auto mockDrawingSessionFactory = std::make_shared<MockCanvasImageSourceDrawingSessionFactory>();
+        auto canvasImageSource = Make<CanvasImageSource>(resourceCreator.Get(), width, height, dpi, CanvasBackground::Opaque, stubSurfaceImageSourceFactory.Get(), mockDrawingSessionFactory);
+
+        Size size = { 0, 0 };
+        ThrowIfFailed(canvasImageSource->get_Size(&size));
+        Assert::AreEqual(width, size.Width);
+        Assert::AreEqual(height, size.Height);
+
+        BitmapSize bitmapSize = { 0, 0 };
+        ThrowIfFailed(canvasImageSource->get_SizeInPixels(&bitmapSize));
+        Assert::AreEqual(static_cast<uint32_t>(round(width * dpi / DEFAULT_DPI)), bitmapSize.Width);
+        Assert::AreEqual(static_cast<uint32_t>(round(height * dpi / DEFAULT_DPI)), bitmapSize.Height);
+    }
 };
 
 TEST_CLASS(CanvasImageSourceCreateDrawingSessionTests)
 {
-    ComPtr<StubCanvasDevice> m_canvasDevice;
-    ComPtr<MockSurfaceImageSource> m_surfaceImageSource;
-    ComPtr<StubSurfaceImageSourceFactory> m_surfaceImageSourceFactory;
-    std::shared_ptr<MockCanvasImageSourceDrawingSessionFactory> m_canvasImageSourceDrawingSessionFactory;
-    ComPtr<CanvasImageSource> m_canvasImageSource;
-    int m_imageWidth;
-    int m_imageHeight;
-
-public:
-    TEST_METHOD_INITIALIZE(Init)
+    struct Fixture
     {
-        m_canvasDevice = Make<StubCanvasDevice>();
-        m_surfaceImageSource = Make<MockSurfaceImageSource>();
-        m_surfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>(m_surfaceImageSource.Get());
-        m_canvasImageSourceDrawingSessionFactory = std::make_shared<MockCanvasImageSourceDrawingSessionFactory>();
+        ComPtr<StubCanvasDevice> m_canvasDevice;
+        ComPtr<MockSurfaceImageSource> m_surfaceImageSource;
+        ComPtr<StubSurfaceImageSourceFactory> m_surfaceImageSourceFactory;
+        std::shared_ptr<MockCanvasImageSourceDrawingSessionFactory> m_canvasImageSourceDrawingSessionFactory;
+        ComPtr<CanvasImageSource> m_canvasImageSource;
+        int m_imageWidth;
+        int m_imageHeight;
+        Color m_anyColor;
 
-        m_surfaceImageSource->MockSetDevice = [&](IUnknown*) {};
+        Fixture(float dpi = DEFAULT_DPI)
+        {
+            m_canvasDevice = Make<StubCanvasDevice>();
+            m_surfaceImageSource = Make<MockSurfaceImageSource>();
+            m_surfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>(m_surfaceImageSource.Get());
+            m_canvasImageSourceDrawingSessionFactory = std::make_shared<MockCanvasImageSourceDrawingSessionFactory>();
+            
+            m_surfaceImageSource->SetDeviceMethod.AllowAnyCall();
+            
+            m_imageWidth = 123;
+            m_imageHeight = 456;
+            
+            m_canvasImageSource = Make<CanvasImageSource>(
+                m_canvasDevice.Get(),
+                (float)m_imageWidth,
+                (float)m_imageHeight,
+                dpi,
+                CanvasBackground::Transparent,
+                m_surfaceImageSourceFactory.Get(),
+                m_canvasImageSourceDrawingSessionFactory);
+            
+            m_surfaceImageSource->SetDeviceMethod.SetExpectedCalls(0);
+            
+            m_anyColor = Color{ 1, 2, 3, 4 };
+        }
+    };
 
-        m_imageWidth = 123;
-        m_imageHeight = 456;
-
-        m_canvasImageSource = Make<CanvasImageSource>(
-            m_canvasDevice.Get(),
-            m_imageWidth,
-            m_imageHeight,
-            CanvasBackground::Transparent,
-            m_surfaceImageSourceFactory.Get(),
-            m_canvasImageSourceDrawingSessionFactory);
-
-        m_surfaceImageSource->MockSetDevice = nullptr;
-    }
-
-    TEST_METHOD(CanvasImageSource_CreateDrawingSession_PassesEntireImage)
+    TEST_METHOD_EX(CanvasImageSource_CreateDrawingSession_PassesEntireImage)
     {
-        bool createCalled = false;
-        m_canvasImageSourceDrawingSessionFactory->MockCreate =
-            [&](ICanvasDevice* owner, ISurfaceImageSourceNativeWithD2D* sisNative, Rect const& updateRect, float dpi)
+        Fixture f;
+
+        f.m_canvasImageSourceDrawingSessionFactory->CreateMethod.SetExpectedCalls(1,
+            [&](ICanvasDevice*, ISurfaceImageSourceNativeWithD2D*, Color const&, RECT const& updateRect, float)
             {
-                Assert::IsFalse(createCalled);
-                Assert::AreEqual<float>(0, updateRect.X);
-                Assert::AreEqual<float>(0, updateRect.Y);
-                Assert::AreEqual<float>(static_cast<float>(m_imageWidth), updateRect.Width);
-                Assert::AreEqual<float>(static_cast<float>(m_imageHeight), updateRect.Height);
-                createCalled=true;
+                Assert::AreEqual<int>(0, updateRect.left);
+                Assert::AreEqual<int>(0, updateRect.top);
+                Assert::AreEqual<int>(f.m_imageWidth, updateRect.right);
+                Assert::AreEqual<int>(f.m_imageHeight, updateRect.bottom);
                 return Make<MockCanvasDrawingSession>();
-            };
+            });
 
         ComPtr<ICanvasDrawingSession> drawingSession;
-        ThrowIfFailed(m_canvasImageSource->CreateDrawingSession(&drawingSession));
-        Assert::IsTrue(createCalled);
+        ThrowIfFailed(f.m_canvasImageSource->CreateDrawingSession(f.m_anyColor, &drawingSession));
         Assert::IsTrue(drawingSession);
     }
 
-    TEST_METHOD(CanvasImageSource_CreateDrawingSessionWithUpdateRegion_PassesSpecifiedUpdateRegion)
+    TEST_METHOD_EX(CanvasImageSource_CreateDrawingSessionWithUpdateRegion_PassesSpecifiedUpdateRegion)
     {
-        Rect expectedRect = {};
-        expectedRect.X = 1;
-        expectedRect.Y = 2;
-        expectedRect.Width = 3;
-        expectedRect.Height = 4;
+        Fixture f;
 
-        bool createCalled = false;
-        m_canvasImageSourceDrawingSessionFactory->MockCreate = 
-            [&](ICanvasDevice* owner, ISurfaceImageSourceNativeWithD2D* sisNative, Rect const& updateRect, float dpi)
+        int32_t left = 1;
+        int32_t top = 2;
+        int32_t width = 3;
+        int32_t height = 4;
+
+        RECT expectedRect{ left, top, left + width, top + height };
+
+        f.m_canvasImageSourceDrawingSessionFactory->CreateMethod.SetExpectedCalls(1, 
+            [&](ICanvasDevice*, ISurfaceImageSourceNativeWithD2D*, Color const&, RECT const& updateRect, float)
             {
-                Assert::IsFalse(createCalled);
-                Assert::AreEqual(expectedRect.X, updateRect.X);
-                Assert::AreEqual(expectedRect.Y, updateRect.Y);
-                Assert::AreEqual(expectedRect.Width, updateRect.Width);
-                Assert::AreEqual(expectedRect.Height, updateRect.Height);
-                createCalled = true;
+                Assert::AreEqual(expectedRect.left, updateRect.left);
+                Assert::AreEqual(expectedRect.top, updateRect.top);
+                Assert::AreEqual(expectedRect.right, updateRect.right);
+                Assert::AreEqual(expectedRect.bottom, updateRect.bottom);
                 return Make<MockCanvasDrawingSession>();
-            };
+            });
 
 
         ComPtr<ICanvasDrawingSession> drawingSession;
-        ThrowIfFailed(m_canvasImageSource->CreateDrawingSessionWithUpdateRectangle(expectedRect, &drawingSession));
-        Assert::IsTrue(createCalled);
+        ThrowIfFailed(f.m_canvasImageSource->CreateDrawingSessionWithUpdateRectangle(f.m_anyColor, Rect{ (float)left, (float)top, (float)width, (float)height }, &drawingSession));
         Assert::IsTrue(drawingSession);
+    }
+
+    TEST_METHOD_EX(CanvasImageSource_CreateDrawingSessionWithUpdateRegion_PassesSpecifiedUpdateRegion_HighDpi)
+    {
+        Fixture f(DEFAULT_DPI * 2);
+
+        int32_t left = 1;
+        int32_t top = 2;
+        int32_t width = 3;
+        int32_t height = 4;
+
+        f.m_canvasImageSourceDrawingSessionFactory->CreateMethod.SetExpectedCalls(1,
+            [&](ICanvasDevice*, ISurfaceImageSourceNativeWithD2D*, Color const&, RECT const& updateRect, float)
+        {
+            Assert::AreEqual(left * 2, (int32_t)updateRect.left);
+            Assert::AreEqual(top * 2, (int32_t)updateRect.top);
+            Assert::AreEqual((left + width) * 2, (int32_t)updateRect.right);
+            Assert::AreEqual((top + height) * 2, (int32_t)updateRect.bottom);
+            return Make<MockCanvasDrawingSession>();
+        });
+
+
+        ComPtr<ICanvasDrawingSession> drawingSession;
+        ThrowIfFailed(f.m_canvasImageSource->CreateDrawingSessionWithUpdateRectangle(f.m_anyColor, Rect{ (float)left, (float)top, (float)width, (float)height }, &drawingSession));
+        Assert::IsTrue(drawingSession);
+    }
+
+    TEST_METHOD_EX(CanvasImageSource_CreateDrawingSession_PassesClearColor)
+    {
+        Fixture f;
+
+        int32_t anyLeft = 1;
+        int32_t anyTop = 2;
+        int32_t anyWidth = 3;
+        int32_t anyHeight = 4;
+
+        Color expectedColor{ 1, 2, 3, 4 };
+
+        f.m_canvasImageSourceDrawingSessionFactory->CreateMethod.SetExpectedCalls(2,
+            [&](ICanvasDevice*, ISurfaceImageSourceNativeWithD2D*, Color const& clearColor, RECT const&, float)
+            {
+                Assert::AreEqual(expectedColor, clearColor);
+                return Make<MockCanvasDrawingSession>();
+            });
+
+        ComPtr<ICanvasDrawingSession> ignoredDrawingSession;
+        ThrowIfFailed(f.m_canvasImageSource->CreateDrawingSession(expectedColor, &ignoredDrawingSession));
+        ThrowIfFailed(f.m_canvasImageSource->CreateDrawingSessionWithUpdateRectangle(expectedColor, Rect{ (float)anyLeft, (float)anyTop, (float)anyWidth, (float)anyHeight }, &ignoredDrawingSession));
     }
 };
 
 TEST_CLASS(CanvasImageSourceDrawingSessionAdapterTests)
 {
 public:
-    TEST_METHOD(CanvasImageSourceDrawingSessionAdapter_BeginEndDraw)
+    TEST_METHOD_EX(CanvasImageSourceDrawingSessionAdapter_BeginEndDraw)
     {
         auto mockDeviceContext = Make<MockD2DDeviceContext>();
         auto mockSurfaceImageSource = Make<MockSurfaceImageSource>();        
         RECT expectedUpdateRect{ 1, 2, 3, 4 };
-        POINT expectedOffset{ 5, 6 };
+        POINT beginDrawOffset{ 5, 6 };
+        D2D1_COLOR_F expectedClearColor{ 7, 8, 9, 10 };
 
-        bool beginDrawCalled = false;
-        mockSurfaceImageSource->MockBeginDraw =
+        mockSurfaceImageSource->BeginDrawMethod.SetExpectedCalls(1,
             [&](RECT const& updateRect, IID const& iid, void** updateObject, POINT* offset)
             {
-                Assert::IsFalse(beginDrawCalled);
                 Assert::AreEqual(expectedUpdateRect, updateRect);
                 Assert::AreEqual(_uuidof(ID2D1DeviceContext), iid);
 
-                ThrowIfFailed(mockDeviceContext.CopyTo(iid, updateObject));
-                *offset = expectedOffset;
-                beginDrawCalled = true;
-            };
+                HRESULT hr = mockDeviceContext.CopyTo(iid, updateObject);
+                *offset = beginDrawOffset;
+                return hr;
+            });
 
-        bool setTransformCalled = false;
-        mockDeviceContext->MockSetTransform =
+        mockDeviceContext->ClearMethod.SetExpectedCalls(1,
+            [&](D2D1_COLOR_F const* color)
+            {
+                Assert::AreEqual(expectedClearColor, *color);
+            });
+
+        mockDeviceContext->SetTransformMethod.SetExpectedCalls(1,
             [&](const D2D1_MATRIX_3X2_F* m)
             {
-                Assert::IsFalse(setTransformCalled);
+                // We expect the transform to be set to just the offset as
+                // calculated from the offset returned by BeginDraw and the
+                // update rectangle
+                float expectedOffsetX = static_cast<float>(beginDrawOffset.x - expectedUpdateRect.left);
+                float expectedOffsetY = static_cast<float>(beginDrawOffset.y - expectedUpdateRect.top);
 
-                // We expect the transform to be set to just the offset
                 Assert::AreEqual(1.0f, m->_11);
                 Assert::AreEqual(0.0f, m->_12);
                 Assert::AreEqual(0.0f, m->_21);
                 Assert::AreEqual(1.0f, m->_22);
-                Assert::AreEqual(static_cast<float>(expectedOffset.x), m->_31);
-                Assert::AreEqual(static_cast<float>(expectedOffset.y), m->_32);
+                Assert::AreEqual(expectedOffsetX, m->_31);
+                Assert::AreEqual(expectedOffsetY, m->_32);
+            });
 
-                setTransformCalled = true;
-            };
-
-        bool setDpiCalled = false;
-        mockDeviceContext->MockSetDpi =
+        mockDeviceContext->SetDpiMethod.SetExpectedCalls(1,
             [&](float dpiX, float dpiY)
             {
                 Assert::AreEqual(DEFAULT_DPI, dpiX);
                 Assert::AreEqual(DEFAULT_DPI, dpiY);
-                setDpiCalled = true;
-            };
+            });
 
         ComPtr<ID2D1DeviceContext1> actualDeviceContext;
         auto adapter = CanvasImageSourceDrawingSessionAdapter::Create(
             mockSurfaceImageSource.Get(),
+            expectedClearColor,
             expectedUpdateRect,
             DEFAULT_DPI,
             &actualDeviceContext);
 
         Assert::AreEqual<ID2D1DeviceContext1*>(mockDeviceContext.Get(), actualDeviceContext.Get());
-        Assert::IsTrue(beginDrawCalled);
-        Assert::IsTrue(setTransformCalled);
-        Assert::IsTrue(setDpiCalled);
-        
-        bool endDrawCalled = false;
-        mockSurfaceImageSource->MockEndDraw =
-            [&]
-            {
-                Assert::IsFalse(endDrawCalled);
-                endDrawCalled = true;
-            };
+
+        mockSurfaceImageSource->EndDrawMethod.SetExpectedCalls(1);
 
         adapter->EndDraw();
-        Assert::IsTrue(endDrawCalled);
     }
 
     struct DeviceContextWithRestrictedQI : public MockD2DDeviceContext
@@ -397,31 +579,26 @@ public:
         }
     };
 
-    TEST_METHOD(CanvasImageSourceDrawingSessionAdapter_When_SisNative_Gives_Unusuable_DeviceContext_Then_EndDraw_Called)
+    TEST_METHOD_EX(CanvasImageSourceDrawingSessionAdapter_When_SisNative_Gives_Unusuable_DeviceContext_Then_EndDraw_Called)
     {
         auto sis = Make<MockSurfaceImageSource>();
-        bool beginDrawCalled = false;
-        sis->MockBeginDraw = 
+        sis->BeginDrawMethod.SetExpectedCalls(1,
             [&](RECT const&, IID const& iid, void** obj, POINT*)
             {
-                Assert::IsFalse(beginDrawCalled);
-                beginDrawCalled = true;
                 auto deviceContext = Make<DeviceContextWithRestrictedQI>();
-                ThrowIfFailed(deviceContext.CopyTo(iid, obj));
-            };
+                return deviceContext.CopyTo(iid, obj);
+            });
 
-        bool endDrawCalled = false;
-        sis->MockEndDraw =
-            [&]
-            {
-                Assert::IsFalse(endDrawCalled);
-                endDrawCalled = true;
-            };
+        sis->EndDrawMethod.SetExpectedCalls(1);
 
         //
         // We expect creating the adapter to fail since our SurfaceImageSource
         // implementation returns a device context that only implements
-        // ID2D1DeviceContext.  We require ID2D1DeviceContext1.
+        // ID2D1DeviceContext.  
+        //
+        // If this happens we expect BeginDraw to have been called.  Then, after
+        // the failure, we expect EndDraw to have been called in order to clean
+        // up properly.
         //
         ComPtr<ID2D1DeviceContext1> actualDeviceContext;
         ExpectHResultException(E_NOINTERFACE,
@@ -429,77 +606,10 @@ public:
             {
                 CanvasImageSourceDrawingSessionAdapter::Create(
                     sis.Get(),
+                    D2D1_COLOR_F{ 1, 2, 3, 4 },
                     RECT{ 1, 2, 3, 4 },
                     DEFAULT_DPI,
                     &actualDeviceContext);
             });
-
-        //
-        // If this happens we expect BeginDraw to have been called.  Then, after
-        // the failure, we expect EndDraw to have been called in order to clean
-        // up properly.
-        //
-        Assert::IsTrue(beginDrawCalled);
-        Assert::IsTrue(endDrawCalled);
-    }
-
-    TEST_METHOD(CanvasImageSource_CreateFromCanvasControl)
-    {
-        std::shared_ptr<CanvasControlTestAdapter> canvasControlAdapter = std::make_shared<CanvasControlTestAdapter>();
-        
-        ComPtr<CanvasControl> canvasControl = Make<CanvasControl>(canvasControlAdapter);
-
-        auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>();
-
-        auto canvasImageSource = Make<CanvasImageSource>(
-            canvasControl.Get(),
-            123,
-            456,
-            CanvasBackground::Opaque,
-            stubSurfaceImageSourceFactory.Get(),
-            std::make_shared<MockCanvasImageSourceDrawingSessionFactory>());
-
-        //
-        // Verify that the image source and the control are compatible.
-        //
-        ComPtr<ICanvasDevice> controlDevice;
-        ThrowIfFailed(canvasControl->get_Device(&controlDevice));
-
-        ComPtr<ICanvasDevice> sisDevice;
-        ThrowIfFailed(canvasImageSource->get_Device(&sisDevice));
-
-        Assert::AreEqual(controlDevice.Get(), sisDevice.Get());
-    }
-
-    TEST_METHOD(CanvasImageSource_CreateFromDrawingSession)
-    {
-        ComPtr<StubCanvasDevice> canvasDevice = Make<StubCanvasDevice>();
-
-        ComPtr<StubD2DDeviceContextWithGetFactory> d2dDeviceContext =
-            Make<StubD2DDeviceContextWithGetFactory>();
-
-        auto manager = std::make_shared<CanvasDrawingSessionManager>();
-        ComPtr<CanvasDrawingSession> drawingSession = manager->Create(
-            canvasDevice.Get(),
-            d2dDeviceContext.Get(),
-            std::make_shared<StubCanvasDrawingSessionAdapter>());
-
-        auto stubSurfaceImageSourceFactory = Make<StubSurfaceImageSourceFactory>();
-
-        auto canvasImageSource = Make<CanvasImageSource>(
-            drawingSession.Get(),
-            5,
-            10,
-            CanvasBackground::Opaque,
-            stubSurfaceImageSourceFactory.Get(),
-            std::make_shared<MockCanvasImageSourceDrawingSessionFactory>());
-
-        //
-        // Verify that the image source and the drawing session are compatible.
-        //
-        ComPtr<ICanvasDevice> sisDevice;
-        ThrowIfFailed(canvasImageSource->get_Device(&sisDevice));
-
-        Assert::AreEqual(static_cast<ICanvasDevice*>(canvasDevice.Get()), sisDevice.Get());
     }
 };

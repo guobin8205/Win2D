@@ -13,6 +13,7 @@
 #pragma once
 
 #include "ResourceManager.h"
+#include "CanvasBrush.h"
 
 namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 {
@@ -20,20 +21,6 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
     class CanvasSolidColorBrush;
     class CanvasSolidColorBrushManager;
-
-    [uuid(3A6BF1D2-731A-4EBB-AA40-1419A89302F6)]
-    class ICanvasBrushInternal : public IUnknown
-    {
-    public:
-        virtual ComPtr<ID2D1Brush> GetD2DBrush() = 0;
-    };
-
-    [uuid(8FE46BCD-8594-44F4-AAB2-16E192BDC05F)]
-    class ICanvasSolidColorBrushInternal : public ICanvasBrushInternal
-    {
-    public:
-        virtual ComPtr<ID2D1SolidColorBrush> GetD2DSolidColorBrush() = 0;
-    };
 
     struct CanvasSolidColorBrushTraits
     {
@@ -43,25 +30,8 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         typedef CanvasSolidColorBrushManager manager_t;
     };
 
-    class CanvasBrush
-        : public Implements<
-            RuntimeClassFlags<WinRtClassicComMix>,
-            ICanvasBrush, 
-            CloakedIid<ICanvasBrushInternal>>
-    {
-    public:
-        IFACEMETHOD(get_Opacity)(_Out_ float *value) override;
-
-        IFACEMETHOD(put_Opacity)(_In_ float value) override;
-
-        IFACEMETHOD(get_Transform)(_Out_ Numerics::Matrix3x2 *value) override;
-
-        IFACEMETHOD(put_Transform)(_In_ Numerics::Matrix3x2 value) override;
-    };
-
     class CanvasSolidColorBrush : RESOURCE_WRAPPER_RUNTIME_CLASS(
         CanvasSolidColorBrushTraits, 
-        ChainInterfaces<CloakedIid<ICanvasSolidColorBrushInternal>, CloakedIid<ICanvasBrushInternal>>,
         MixIn<CanvasSolidColorBrush, CanvasBrush>),
         public CanvasBrush
     {
@@ -70,7 +40,8 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
     public:
         CanvasSolidColorBrush(
             std::shared_ptr<CanvasSolidColorBrushManager> manager,
-            ID2D1SolidColorBrush* brush);
+            ID2D1SolidColorBrush* brush,
+            ICanvasDevice* device);
 
         IFACEMETHOD(get_Color)(_Out_ ABI::Windows::UI::Color *value) override;
 
@@ -80,10 +51,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         IFACEMETHOD(Close)() override;
 
         // ICanvasBrushInternal
-        virtual ComPtr<ID2D1Brush> GetD2DBrush() override;
-
-        // ICanvasSolidColorBrushInternal
-        virtual ComPtr<ID2D1SolidColorBrush> GetD2DSolidColorBrush() override;
+        virtual ComPtr<ID2D1Brush> GetD2DBrush(ID2D1DeviceContext* deviceContext) override;
     };
 
     class CanvasSolidColorBrushManager : public ResourceManager<CanvasSolidColorBrushTraits>
@@ -94,19 +62,20 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             ABI::Windows::UI::Color color);
 
         ComPtr<CanvasSolidColorBrush> CreateWrapper(
+            ICanvasDevice* device,
             ID2D1SolidColorBrush* resource);
     };
 
     class CanvasSolidColorBrushFactory 
         : public ActivationFactory<
             ICanvasSolidColorBrushFactory,
-            CloakedIid<ICanvasFactoryNative>>,
+            CloakedIid<ICanvasDeviceResourceFactoryNative>>,
           public PerApplicationManager<CanvasSolidColorBrushFactory, CanvasSolidColorBrushManager>
     {
         InspectableClassStatic(RuntimeClass_Microsoft_Graphics_Canvas_CanvasSolidColorBrush, BaseTrust);
 
     public:
-        IMPLEMENT_DEFAULT_ICANVASFACTORYNATIVE();
+        IMPLEMENT_DEFAULT_ICANVASDEVICERESOURCEFACTORYNATIVE();
 
         //
         // ICanvasSolidColorBrushFactory
@@ -116,6 +85,5 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             ICanvasResourceCreator* resourceCreator,
             ABI::Windows::UI::Color color,
             ICanvasSolidColorBrush** canvasSolidColorBrush) override;
-
     };
 }}}}

@@ -23,11 +23,28 @@ namespace canvas
     class StubCanvasDevice : public MockCanvasDevice
     {
         ComPtr<ID2D1Device1> m_d2DDevice;
+        ComPtr<MockD3D11Device> m_d3dDevice;
 
     public:
         StubCanvasDevice(ComPtr<ID2D1Device1> device = Make<StubD2DDevice>())
             : m_d2DDevice(device)
         {
+            GetInterfaceMethod.AllowAnyCall();
+            CreateDeviceContextMethod.AllowAnyCall(
+                [=]
+                {
+                    ComPtr<ID2D1DeviceContext1> dc;
+                    ThrowIfFailed(m_d2DDevice->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc));
+                    return dc;
+                });
+        }
+
+        void MarkAsLost()
+        {
+            auto d3dDevice = GetDXGIInterfaceFromResourceCreator<ID3D11Device>(this);
+            auto mockD3DDevice = dynamic_cast<MockD3D11Device*>(d3dDevice.Get());
+            mockD3DDevice->GetDeviceRemovedReasonMethod.AllowAnyCall(
+                [] { return DXGI_ERROR_DEVICE_REMOVED; });
         }
 
         virtual ComPtr<ID2D1Device1> GetD2DDevice() override
@@ -42,6 +59,21 @@ namespace canvas
             *value = device.Detach();
 
             return S_OK;
+        }
+
+        IFACEMETHODIMP GetInterface(REFIID iid, void** p) override
+        {
+            HRESULT hr = __super::GetInterface(iid, p);
+            if (SUCCEEDED(hr) && !*p)
+            {
+                if (!m_d3dDevice)
+                    m_d3dDevice = Make<MockD3D11Device>();
+                return m_d3dDevice.CopyTo(iid, p);
+            }
+            else
+            {
+                return hr;
+            }
         }
     };
 }

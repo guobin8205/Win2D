@@ -12,8 +12,6 @@
 
 #pragma once
 
-#pragma warning(disable: 4100)  // "unreferenced formal parameter"
-
 #include <sdkddkver.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -46,8 +44,10 @@
 #include <d3d11.h>
 #include <dwrite_2.h>
 #include <dxgi1_3.h>
+#include <DirectXMath.h>
 #include <wincodec.h>
 #include <shcore.h>
+#include <corerror.h>
 
 // WinRT
 #include <windows.foundation.h>
@@ -64,6 +64,7 @@
 // Inc
 #include <AsyncOperation.h>
 #include <ClosablePtr.h>
+#include <ComArray.h>
 #include <Constants.h>
 #include <ErrorHandling.h>
 #include <Nullable.h>
@@ -78,6 +79,7 @@
 
 // local
 #include "Conversion.h"
+#include "DxgiUtilities.h"
 #include "ResourceManager.h"
 #include "Strings.h"
 #include "effects\CanvasEffect.h"

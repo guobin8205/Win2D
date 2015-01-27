@@ -19,6 +19,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
     // static
     std::shared_ptr<CanvasImageSourceDrawingSessionAdapter> CanvasImageSourceDrawingSessionAdapter::Create(
         ISurfaceImageSourceNativeWithD2D* sisNative,
+        D2D1_COLOR_F const& clearColor,
         RECT const& updateRect,
         float dpi,
         ID2D1DeviceContext1** outDeviceContext)
@@ -57,6 +58,12 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         //
         const float dpiScalingFactor = dpi / DEFAULT_DPI;
 
+        // Update the offset to account for the updateRect (so the resulting
+        // drawing session has the same coordinate system relative to the entire
+        // image, rather than relative to the updateRect).
+        offset.x -= updateRect.left;
+        offset.y -= updateRect.top;
+
         const D2D1_POINT_2F renderingSurfaceOffset = D2D1::Point2F(
             static_cast<float>(offset.x / dpiScalingFactor),
             static_cast<float>(offset.y / dpiScalingFactor));
@@ -64,6 +71,13 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         auto adapter = std::make_shared<CanvasImageSourceDrawingSessionAdapter>(
             sisNative,
             renderingSurfaceOffset);
+
+        //
+        // XAML has given us a surface to render to, but it doesn't make any
+        // guarantees about what's currently on this surface.  So the only safe
+        // thing to do here is to clear it.
+        //
+        deviceContext->Clear(&clearColor);
 
         //
         // TODO #2140 Use a separate code path, responsible for resetting

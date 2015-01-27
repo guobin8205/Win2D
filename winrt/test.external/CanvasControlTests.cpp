@@ -13,6 +13,7 @@
 #include "pch.h"
 
 using namespace Microsoft::Graphics::Canvas;
+using namespace Microsoft::Graphics::Canvas::DirectX;
 
 TEST_CLASS(CanvasControlTests)
 {
@@ -27,7 +28,7 @@ TEST_CLASS(CanvasControlTests)
 
             Windows::Foundation::EventRegistrationToken createResourcesRegistrationToken;
 
-            createResourcesRegistrationToken = canvasControl->CreateResources += ref new Windows::Foundation::TypedEventHandler<CanvasControl^, Object^>(this, &CallbackVerifier::OnCreateResources);
+            createResourcesRegistrationToken = canvasControl->CreateResources += ref new Windows::Foundation::TypedEventHandler<CanvasControl^, CanvasCreateResourcesEventArgs^>(this, &CallbackVerifier::OnCreateResources);
 
             canvasControl->CreateResources -= createResourcesRegistrationToken;
 
@@ -38,7 +39,7 @@ TEST_CLASS(CanvasControlTests)
             canvasControl->Draw -= drawRegistrationToken;
         }
 
-        void OnCreateResources(CanvasControl^ sender, Object^ args)
+        void OnCreateResources(CanvasControl^ sender, CanvasCreateResourcesEventArgs^ args)
         {
         }
 
@@ -86,24 +87,10 @@ TEST_CLASS(CanvasControlTests)
             []
             {
                 auto device = ref new CanvasDevice();
-                auto imageSource = ref new CanvasImageSource(device, 1, 1);
-                auto drawingSession = imageSource->CreateDrawingSession();
+                auto renderTarget = ref new CanvasRenderTarget(device, 1, 1, DEFAULT_DPI);
+                auto drawingSession = renderTarget->CreateDrawingSession();
 
                 CanvasDrawEventArgs^ drawEventArgs = ref new CanvasDrawEventArgs(drawingSession);
-            });
-    }
-
-    TEST_METHOD(CanvasControl_ControlAsResourceAllocator)
-    {
-        RunOnUIThread(
-            []
-            {
-                CanvasControl^ canvasControl = ref new CanvasControl();
-
-                CanvasSolidColorBrush^ brush = ref new CanvasSolidColorBrush(
-                    canvasControl,
-                    Windows::UI::Colors::Magenta
-                    );
             });
     }
 };

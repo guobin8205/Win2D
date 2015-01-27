@@ -99,37 +99,6 @@ TEST_CLASS(ConversionUnitTests)
 
     }
 
-    TEST_METHOD(RectToRECT)
-    {
-        Assert::AreEqual(RECT{ 1, 2, 4, 6 }, ToRECT(Rect{ 1, 2, 3, 4 }));
-        
-        //
-        // floats can losslessly store integers up to magnitude 2^24 (16777216).
-        // This causes us a problem because VirtualImageSources may want to
-        // specify regions with values up to 17000000 and we cannot reliably
-        // convert Rect to RECT for these.
-        //
-        // ToRECT will fail with E_INVALIDARG if you attempt to convert to a
-        // RECT with values outside of this range.
-        //
-        const uint32_t mv = 16777216;
-        const float mvf = static_cast<float>(mv);
-        Assert::AreEqual(static_cast<uint32_t>(mvf), mv);
-        Assert::AreEqual(RECT{ 0, 0, mv, mv }, ToRECT(Rect{ 0, 0, mvf, mvf }));
-
-        ExpectHResultException(E_INVALIDARG, 
-            [&] { ToRECT(Rect{ 0, 0, mvf + 2, mvf }); });
-
-        ExpectHResultException(E_INVALIDARG, 
-            [&] { ToRECT(Rect{ 0, 0, mvf, mvf + 2 }); });
-
-        ExpectHResultException(E_INVALIDARG, 
-            [&] { ToRECT(Rect{ 2, 0, mvf, mvf }); });
-
-        ExpectHResultException(E_INVALIDARG, 
-            [&] { ToRECT(Rect{ 0, 2, mvf, mvf }); });
-    }
-
     TEST_METHOD(PointToD2DPoint)
     {
         Assert::AreEqual(D2D1_POINT_2F{ 1, 2 }, ToD2DPoint(Vector2{ 1, 2 }));
@@ -203,5 +172,38 @@ TEST_CLASS(ConversionUnitTests)
 
         Assert::AreEqual((BYTE)23, DesaturateChannel(23, -50));
         Assert::AreEqual((BYTE)127, DesaturateChannel(23, 999));
+    }
+
+    TEST_METHOD(DpiConversion)
+    {
+        Assert::AreEqual(0, DipsToPixels(0, 96));
+        Assert::AreEqual(23, DipsToPixels(23, 96));
+        Assert::AreEqual(1234, DipsToPixels(1234, 96));
+
+        Assert::AreEqual(0, DipsToPixels(0, 144));
+        Assert::AreEqual(23 * 3 / 2, DipsToPixels(22.999f, 144));
+        Assert::AreEqual(1234 * 3 / 2, DipsToPixels(1234, 144));
+
+        Assert::AreEqual(0, DipsToPixels(0, 64));
+        Assert::AreEqual(23 * 2 / 3, DipsToPixels(23, 64));
+        Assert::AreEqual(1234 * 2 / 3, DipsToPixels(1233.5f, 64));
+
+        Assert::AreEqual(42, DipsToPixels(42.0f, 96));
+        Assert::AreEqual(42, DipsToPixels(42.1f, 96));
+        Assert::AreEqual(42, DipsToPixels(42.4f, 96));
+        Assert::AreEqual(43, DipsToPixels(42.6f, 96));
+        Assert::AreEqual(43, DipsToPixels(42.9f, 96));
+
+        Assert::AreEqual(0.0f, PixelsToDips(0, 96));
+        Assert::AreEqual(23.0f, PixelsToDips(23, 96));
+        Assert::AreEqual(1234.0f, PixelsToDips(1234, 96));
+
+        Assert::AreEqual(0.0f, PixelsToDips(0, 144));
+        Assert::AreEqual(23.0f * 2 / 3, PixelsToDips(23, 144));
+        Assert::AreEqual(1234.0f * 2 / 3, PixelsToDips(1234, 144));
+
+        Assert::AreEqual(0.0f, PixelsToDips(0, 64));
+        Assert::AreEqual(23.0f * 3 / 2, PixelsToDips(23, 64));
+        Assert::AreEqual(1234.0f * 3 / 2, PixelsToDips(1234, 64));
     }
 };

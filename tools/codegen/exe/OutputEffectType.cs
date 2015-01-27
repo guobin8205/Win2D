@@ -1,4 +1,4 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
+﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may
 // not use these files except in compliance with the License. You may obtain
@@ -23,7 +23,7 @@ namespace CodeGen
     {
         const string stdInfinity = "std::numeric_limits<float>::infinity()";
 
-        public static void OutputEnum(Property enumProperty, Formatter output)
+        public static void OutputEnum(Effects.Property enumProperty, Formatter output)
         {
             output.WriteLine("[version(VERSION)]");
             output.WriteLine("typedef enum " + enumProperty.TypeNameIdl);
@@ -46,7 +46,7 @@ namespace CodeGen
             output.WriteLine("} " + enumProperty.TypeNameIdl + ";");
         }
 
-        public static void OutputCommonEnums(List<Effect> effects, Formatter output)
+        public static void OutputCommonEnums(List<Effects.Effect> effects, Formatter output)
         {
             OutputDataTypes.OutputLeadingComment(output);
 
@@ -82,7 +82,7 @@ namespace CodeGen
             output.WriteLine("}");
         }
 
-        public static void OutputEffectIdl(Effect effect, Formatter output)
+        public static void OutputEffectIdl(Effects.Effect effect, Formatter output)
         {
             OutputDataTypes.OutputLeadingComment(output);
 
@@ -93,7 +93,9 @@ namespace CodeGen
             // Output all enums specific to this effect
             foreach (var property in effect.Properties)
             {
-                if (property.Type == "enum" && property.EnumFields.IsUnique && property.ShouldProject)
+                if (property.Type == "enum" && 
+                    property.EnumFields.Usage == Effects.EnumValues.UsageType.UsedByOneEffect && 
+                    property.ShouldProject)
                 {
                     OutputEnum(property, output);
                     output.WriteLine();
@@ -105,7 +107,7 @@ namespace CodeGen
             output.WriteLine("[version(VERSION), uuid(" + effect.Uuid + "), exclusiveto(" + effect.ClassName + ")]");
             output.WriteLine("interface " + effect.InterfaceName + " : IInspectable");
             output.WriteIndent();
-            output.WriteLine("requires  Microsoft.Graphics.Canvas.ICanvasImage");
+            output.WriteLine("requires Microsoft.Graphics.Canvas.ICanvasImage");
             output.WriteLine("{");
             output.Indent();
 
@@ -117,11 +119,25 @@ namespace CodeGen
                     continue;
 
                 output.WriteLine("[propget]");
-                output.WriteLine("HRESULT " + property.Name + "([out, retval] " + property.TypeNameIdl + "* value);");
+                if (property.IsArray)
+                {
+                    output.WriteLine("HRESULT " + property.Name + "([out] UINT32* valueCount, [out, size_is(, *valueCount), retval] " + property.TypeNameIdl + "** valueElements);");
+                }
+                else
+                {
+                    output.WriteLine("HRESULT " + property.Name + "([out, retval] " + property.TypeNameIdl + "* value);");
+                }
                 output.WriteLine();
 
                 output.WriteLine("[propput]");
-                output.WriteLine("HRESULT " + property.Name + "([in] " + property.TypeNameIdl + " value);");
+                if (property.IsArray)
+                {
+                    output.WriteLine("HRESULT " + property.Name + "([in] UINT32 valueCount, [in, size_is(valueCount)] " + property.TypeNameIdl + "* valueElements);");
+                }
+                else
+                {
+                    output.WriteLine("HRESULT " + property.Name + "([in] " + property.TypeNameIdl + " value);");
+                }
                 output.WriteLine();
             }
 
@@ -158,7 +174,7 @@ namespace CodeGen
             output.WriteLine("}");
         }
 
-        public static void OutputEffectHeader(Effect effect, Formatter output)
+        public static void OutputEffectHeader(Effects.Effect effect, Formatter output)
         {
             OutputDataTypes.OutputLeadingComment(output);
 
@@ -193,7 +209,9 @@ namespace CodeGen
                 if (property.Type == "string" || property.IsHidden)
                     continue;
 
-                output.WriteLine("PROPERTY(" + property.Name + ", " + property.TypeNameCpp + ");");
+                var propertyMacro = property.IsArray ? "ARRAY_PROPERTY" : "PROPERTY";
+
+                output.WriteLine(propertyMacro + "(" + property.Name + ", " + property.TypeNameCpp + ");");
             }
 
             if (!(effect.Inputs.Maximum != null && effect.Inputs.Maximum == "0xFFFFFFFF"))
@@ -210,7 +228,7 @@ namespace CodeGen
             output.WriteLine("}}}}}");
         }
 
-        public static void OutputEffectCpp(Effect effect, Formatter output)
+        public static void OutputEffectCpp(Effects.Effect effect, Formatter output)
         {
             OutputDataTypes.OutputLeadingComment(output);
 
@@ -270,7 +288,7 @@ namespace CodeGen
             output.WriteLine("}}}}}");
         }
 
-        private static void WritePropertyInitialization(Formatter output, Property property)
+        private static void WritePropertyInitialization(Formatter output, Effects.Property property)
         {
             // Property with type string describes 
             // name/author/category/description of effect but not input type
@@ -279,10 +297,12 @@ namespace CodeGen
 
             string defaultValue = property.Properties.Find(internalProperty => internalProperty.Name == "Default").Value;
 
-            output.WriteLine("SetProperty<" + property.TypeNameBoxed + ">(" + property.NativePropertyName + ", " + FormatPropertyValue(property, defaultValue) + ");");
+            string setFunction = property.IsArray ? "SetArrayProperty" : "SetProperty";
+
+            output.WriteLine(setFunction + "<" + property.TypeNameBoxed + ">(" + property.NativePropertyName + ", " + FormatPropertyValue(property, defaultValue) + ");");
         }
 
-        private static void WritePropertyImplementation(Effect effect, Formatter output, Property property)
+        private static void WritePropertyImplementation(Effects.Effect effect, Formatter output, Effects.Property property)
         {
             // Property with type string describes 
             // name/author/category/description of effect but not input type
@@ -294,21 +314,24 @@ namespace CodeGen
 
             bool isWithUnsupported = (property.ExcludedEnumIndexes != null) && (property.ExcludedEnumIndexes.Count != 0);
 
-            bool isValidation = (min != null) || (max != null) || isWithUnsupported;
+            bool isValidation = ((min != null) || (max != null) || isWithUnsupported) && !property.ConvertRadiansToDegrees;
+
+            string implementMacro = property.IsArray ? "IMPLEMENT_ARRAY_PROPERTY" : "IMPLEMENT_PROPERTY";
 
             if (isValidation)
             {
-                output.WriteLine("IMPLEMENT_PROPERTY_WITH_VALIDATION(" + effect.ClassName + ",");
-            }
-            else
-            {
-                output.WriteLine("IMPLEMENT_PROPERTY(" + effect.ClassName + ",");
+                implementMacro += "_WITH_VALIDATION";
             }
 
+            output.WriteLine(implementMacro + "(" + effect.ClassName + ",");
             output.Indent();
             output.WriteLine(property.Name + ",");
-            output.WriteLine(property.TypeNameBoxed + ",");
-            output.WriteLine(property.TypeNameCpp + ",");
+            output.WriteLine((property.ConvertRadiansToDegrees ? "ConvertRadiansToDegrees" : property.TypeNameBoxed) + ",");
+
+            if (!property.IsArray)
+            {
+                output.WriteLine(property.TypeNameCpp + ",");
+            }
 
             if (isValidation)
             {
@@ -345,7 +368,7 @@ namespace CodeGen
             output.WriteLine();
         }
 
-        static void AddValidationChecks(List<string> validationChecks, Property property, string minOrMax, string comparisonOperator)
+        static void AddValidationChecks(List<string> validationChecks, Effects.Property property, string minOrMax, string comparisonOperator)
         {
             if (property.Type.StartsWith("vector"))
             {
@@ -366,13 +389,23 @@ namespace CodeGen
             }
         }
 
-        static string FormatPropertyValue(Property property, string value)
+        static string FormatPropertyValue(Effects.Property property, string value)
         {
             if (property.Type == "enum")
             {
-                if (property.EnumFields.NativeEnum != null)
+                if (property.EnumFields.D2DEnum != null)
                 {
-                    value = property.EnumFields.NativeEnum.Enums[Int32.Parse(value)];
+                    bool valueFound = false;
+                    foreach (EnumValue v in property.EnumFields.D2DEnum.Values)
+                    {
+                        if(v.ValueExpression == value)
+                        {
+                            value = v.NativeName;
+                            valueFound = true;
+                            break;
+                        }
+                    }
+                    System.Diagnostics.Debug.Assert(valueFound);
                 }
                 else
                 {
@@ -403,13 +436,13 @@ namespace CodeGen
 
                 value += "f";
             }
-            else if (property.Type == "uint32")
-            {
-                value += "u";
-            }
             else if (property.Type == "bool")
             {
                 value = "static_cast<boolean>(" + value + ")";
+            }
+            else if (property.IsArray)
+            {
+                value = "{ " + value + " }";
             }
 
             return value;
@@ -446,6 +479,18 @@ namespace CodeGen
                    select value.ToString();
         }
 
+        static string FloatToString(float value)
+        {
+            if(float.IsInfinity(value))
+            {
+                return (value < 0 ? "-" : "") + stdInfinity;
+            }
+            else
+            {
+                return value.ToString();
+            }
+        }
+
         static IEnumerable<string> ConvertVectorToRect(IEnumerable<string> values)
         {
             // This is in left/top/right/bottom format.
@@ -456,7 +501,7 @@ namespace CodeGen
             rectValues[3] -= rectValues[1];
 
             return from value in rectValues
-                   select value.ToString().Replace("Infinity", stdInfinity);
+                   select FloatToString(value);
         }
 
         static float StringToFloat(string value)

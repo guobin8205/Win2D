@@ -12,6 +12,7 @@
 
 #include "pch.h"
 #include "TestDeviceResourceCreationAdapter.h"
+#include "CanvasControlTestAdapter.h"
 
 using namespace ABI::Windows::Foundation;
 using namespace ABI::Windows::UI;
@@ -121,7 +122,7 @@ public:
         m_colorBrushManager = std::make_shared<CanvasSolidColorBrushManager>();
     } 
 
-    TEST_METHOD(CanvasSolidColorBrush_Construction)
+    TEST_METHOD_EX(CanvasSolidColorBrush_Construction)
     {
         auto canvasDevice = Make<TestCanvasDevice>();
 
@@ -129,7 +130,7 @@ public:
         D2D1_COLOR_F d2dRed = D2D1::ColorF(1, 0, 0);
 
         auto canvasSolidColorBrush = m_colorBrushManager->Create(canvasDevice.Get(), red);
-        auto d2dSolidColorBrush = canvasSolidColorBrush->GetD2DSolidColorBrush();
+        auto d2dSolidColorBrush = canvasSolidColorBrush->GetResource();
 
         Assert::AreEqual(d2dRed, d2dSolidColorBrush->GetColor());
         Assert::AreEqual(1.0f, d2dSolidColorBrush->GetOpacity());
@@ -140,7 +141,7 @@ public:
         Assert::AreEqual<D2D1_MATRIX_3X2_F>(D2D1::Matrix3x2F::Identity(), actualTransform);
     }
 
-    TEST_METHOD(CanvasSolidColorBrush_Implements_Expected_Interfaces)
+    TEST_METHOD_EX(CanvasSolidColorBrush_Implements_Expected_Interfaces)
     {
         auto canvasDevice = Make<TestCanvasDevice>();
         auto brush = m_colorBrushManager->Create(canvasDevice.Get(), Color{ 255, 0, 0, 0 });
@@ -152,7 +153,7 @@ public:
         ASSERT_IMPLEMENTS_INTERFACE(brush, ICanvasResourceWrapperNative);
     }
 
-    TEST_METHOD(CanvasSolidColorBrush_Properties)
+    TEST_METHOD_EX(CanvasSolidColorBrush_Properties)
     {
         Color red = { 255, 255, 0, 0 };
         Color cyan = { 255, 0, 255, 255 };
@@ -161,8 +162,9 @@ public:
 
         SolidColorBrushCounters counters;
         auto testD2DSolidColorBrush = Make<TestD2DSolidColorBrush>(d2dRed, &counters);
+        auto canvasDevice = Make<TestCanvasDevice>();
 
-        auto canvasSolidColorBrush = m_colorBrushManager->GetOrCreate(testD2DSolidColorBrush.Get());
+        auto canvasSolidColorBrush = m_colorBrushManager->GetOrCreate(canvasDevice.Get(), testD2DSolidColorBrush.Get());
 
         // Verify the brush resource got initialized correctly and didn't call
         // any unexpected methods.
@@ -212,14 +214,20 @@ public:
         canvasSolidColorBrush->get_Transform(&transformActual);
         Assert::AreEqual(scaleAndTranslate, transformActual);
         Assert::AreEqual(1, counters.NumGetTransformCalls);
+
+        // get_Device
+        ComPtr<ICanvasDevice> actualDevice;
+        canvasSolidColorBrush->get_Device(&actualDevice);
+        Assert::AreEqual<ICanvasDevice*>(canvasDevice.Get(), actualDevice.Get());
     }
 
-    TEST_METHOD(CanvasSolidColorBrush_Closed)
+    TEST_METHOD_EX(CanvasSolidColorBrush_Closed)
     {
         Color color = { 255, 127, 127, 127 };
 
         auto d2dBrush = Make<MockD2DSolidColorBrush>();
-        auto canvasSolidColorBrush = m_colorBrushManager->GetOrCreate(d2dBrush.Get());
+        auto canvasDevice = Make<TestCanvasDevice>();
+        auto canvasSolidColorBrush = m_colorBrushManager->GetOrCreate(canvasDevice.Get(), d2dBrush.Get());
 
         Assert::IsNotNull(canvasSolidColorBrush.Get());
 
@@ -239,25 +247,14 @@ public:
         Assert::AreEqual(RO_E_CLOSED, canvasSolidColorBrush->get_Transform(&transformActual));
 
         Assert::AreEqual(RO_E_CLOSED, canvasSolidColorBrush->put_Transform(transformActual));
+
+        ComPtr<ICanvasDevice> actualDevice;
+        Assert::AreEqual(RO_E_CLOSED, canvasSolidColorBrush->get_Device(&actualDevice));
     }
 
-    class CanvasControlAdapter_SpecificDevice : public CanvasControlTestAdapter
+    TEST_METHOD_EX(CanvasSolidColorBrush_CreateThroughCanvasControl)
     {
-        ComPtr<ICanvasDevice> m_device;
-
-    public:
-        CanvasControlAdapter_SpecificDevice(ComPtr<ICanvasDevice> device)
-            : m_device(device) {}
-
-        virtual ComPtr<ICanvasDevice> CreateCanvasDevice() override
-        {
-            return m_device;
-        }
-    };
-
-    TEST_METHOD(CanvasSolidColorBrush_CreateThroughCanvasControl)
-    {
-        ComPtr<MockCanvasDevice> canvasDevice = Make<MockCanvasDevice>();
+        auto canvasDevice = Make<StubCanvasDevice>();
 
         bool createSolidColorBrushCalled = false;
         canvasDevice->MockCreateSolidColorBrush =
@@ -267,10 +264,20 @@ public:
                 return Make<MockD2DSolidColorBrush>();
             };
 
-        std::shared_ptr<CanvasControlAdapter_SpecificDevice> canvasControlAdapter =
-            std::make_shared<CanvasControlAdapter_SpecificDevice>(canvasDevice);
+        auto canvasControlAdapter = std::make_shared<CanvasControlTestAdapter>();
+        canvasControlAdapter->DeviceFactory->ActivateInstanceMethod.SetExpectedCalls(1,
+            [=](IInspectable** value)
+            {
+                return canvasDevice.CopyTo(value);
+            });
+        canvasControlAdapter->CreateCanvasImageSourceMethod.AllowAnyCall();
 
         ComPtr<CanvasControl> canvasControl = Make<CanvasControl>(canvasControlAdapter);
+
+        // Get the control to a point where it has created the device.
+        auto userControl = dynamic_cast<StubUserControl*>(As<IUserControl>(canvasControl).Get());
+        ThrowIfFailed(userControl->LoadedEventSource->InvokeAll(nullptr, nullptr));
+        canvasControlAdapter->RaiseCompositionRenderingEvent();
 
         auto brush = m_colorBrushManager->Create(canvasControl.Get(), Color{ 255, 0, 0, 0 });
 
@@ -282,7 +289,7 @@ public:
         Assert::AreEqual(static_cast<ICanvasDevice*>(canvasDevice.Get()), verifyDevice.Get());
     }
 
-    TEST_METHOD(CanvasSolidColorBrush_CreateThroughDrawingSession)
+    TEST_METHOD_EX(CanvasSolidColorBrush_CreateThroughDrawingSession)
     {
         ComPtr<MockCanvasDevice> canvasDevice = Make<MockCanvasDevice>();
         ComPtr<MockD2DSolidColorBrush> expectedBrush = Make<MockD2DSolidColorBrush>();
@@ -311,7 +318,7 @@ public:
         Assert::IsTrue(createSolidColorBrushCalled);
         ComPtr<ICanvasBrushInternal> createdBrushInternal;
         ThrowIfFailed(createdBrush.As(&createdBrushInternal));
-        ComPtr<ID2D1Brush> createdD2DBrush = createdBrushInternal->GetD2DBrush();
+        ComPtr<ID2D1Brush> createdD2DBrush = createdBrushInternal->GetD2DBrush(nullptr);
         Assert::AreEqual(static_cast<ID2D1Brush*>(expectedBrush.Get()), createdD2DBrush.Get());
     }
 };

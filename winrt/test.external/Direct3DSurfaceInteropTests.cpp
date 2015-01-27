@@ -38,7 +38,7 @@ TEST_CLASS(Direct3DSurfaceInteropTests)
     TEST_METHOD(CreateBitmapFromDirect3DSurface_AlphaAndDpiAreSet)
     {
         auto surface = CreateSurface(D3D11_BIND_SHADER_RESOURCE);
-        auto bitmap = CanvasBitmap::CreateFromDirect3D11Surface(m_canvasDevice, surface, CanvasAlphaBehavior::Ignore, 35.0f);
+        auto bitmap = CanvasBitmap::CreateFromDirect3D11Surface(m_canvasDevice, surface, CanvasAlphaMode::Ignore, 35.0f);
         auto d2dBitmap = GetWrappedResource<ID2D1Bitmap1>(bitmap);
 
         VerifyDpiAndAlpha(d2dBitmap, 35.0f, D2D1_ALPHA_MODE_IGNORE);
@@ -131,16 +131,16 @@ TEST_CLASS(Direct3DSurfaceInteropTests)
         auto bitmap = CanvasBitmap::CreateFromDirect3D11Surface(m_canvasDevice, wrappedSurface);
 
         // Verify each resource size reflects the slice size, not the whole texture.
-        Assert::AreEqual(2.0f, renderTarget->SizeInPixels.Width);
-        Assert::AreEqual(2.0f, renderTarget->SizeInPixels.Height);
-        Assert::AreEqual(2.0f, bitmap->SizeInPixels.Width);
-        Assert::AreEqual(2.0f, bitmap->SizeInPixels.Height);
+        Assert::AreEqual(2u, renderTarget->SizeInPixels.Width);
+        Assert::AreEqual(2u, renderTarget->SizeInPixels.Height);
+        Assert::AreEqual(2u, bitmap->SizeInPixels.Width);
+        Assert::AreEqual(2u, bitmap->SizeInPixels.Height);
     }
 
     TEST_METHOD(CreateRenderTargetFromDirect3DSurface_AlphaAndDpiAreSet)
     {
         auto surface = CreateSurface(D3D11_BIND_RENDER_TARGET);
-        auto renderTarget = CanvasRenderTarget::CreateFromDirect3D11Surface(m_canvasDevice, surface, CanvasAlphaBehavior::Ignore, 75.0f);
+        auto renderTarget = CanvasRenderTarget::CreateFromDirect3D11Surface(m_canvasDevice, surface, CanvasAlphaMode::Ignore, 75.0f);
         auto d2dBitmap = GetWrappedResource<ID2D1Bitmap1>(renderTarget);
 
         VerifyDpiAndAlpha(d2dBitmap, 75.0f, D2D1_ALPHA_MODE_IGNORE);

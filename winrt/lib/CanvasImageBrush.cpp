@@ -45,7 +45,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
                 CheckAndClearOutPointer(canvasImageBrush);
 
                 ComPtr<ICanvasDevice> device;
-                resourceAllocator->get_Device(&device);
+                ThrowIfFailed(resourceAllocator->get_Device(&device));
 
                 auto newImageBrush = Make<CanvasImageBrush>(
                     device.Get());
@@ -91,7 +91,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         ICanvasDevice* device,
         ID2D1BitmapBrush1* bitmapBrush,
         ID2D1ImageBrush* imageBrush)
-        : m_device(device)
+        : CanvasBrush(device)
         , m_d2dBitmapBrush(bitmapBrush)
         , m_d2dImageBrush(imageBrush)
         , m_useBitmapBrush(true)
@@ -117,6 +117,8 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
     void CanvasImageBrush::SetImage(ICanvasImage* image)
     {
+        m_effectNeedingDpiFixup.Reset();
+
         if (image == nullptr)
         {
             if (m_useBitmapBrush) m_d2dBitmapBrush->SetBitmap(nullptr);
@@ -131,7 +133,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             ComPtr<ICanvasBitmapInternal> bitmapInternal;
             ThrowIfFailed(bitmap.As(&bitmapInternal));
 
-            ComPtr<ID2D1Bitmap1> d2dBitmap = bitmapInternal->GetD2DBitmap();
+            auto& d2dBitmap = bitmapInternal->GetD2DBitmap();
 
             m_d2dBitmapBrush->SetBitmap(d2dBitmap.Get());
         }
@@ -145,6 +147,15 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
             auto deviceInternal = As<ICanvasDeviceInternal>(m_device.EnsureNotClosed());
             m_d2dImageBrush->SetImage(deviceInternal->GetD2DImage(image).Get());
+
+            // Effects need to be reconfigured depending on the DPI of the device context they
+            // are drawn onto. We don't know target DPI at this point, so if the image is an
+            // effect, we store that away for use by a later fixup inside GetD2DBrush.
+            ComPtr<IEffect> effect;
+            if (SUCCEEDED(image->QueryInterface(effect.GetAddressOf())))
+            {
+                m_effectNeedingDpiFixup = As<ICanvasImageInternal>(effect);
+            }
         }
     }
 
@@ -382,13 +393,13 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
     IFACEMETHODIMP CanvasImageBrush::Close()
     {
-        m_device.Close();
+        CanvasBrush::Close();
         m_d2dBitmapBrush.Reset();
         m_d2dImageBrush.Reset();
         return S_OK;
     }
 
-    ComPtr<ID2D1Brush> CanvasImageBrush::GetD2DBrush()
+    ComPtr<ID2D1Brush> CanvasImageBrush::GetD2DBrush(ID2D1DeviceContext* deviceContext)
     {
         ThrowIfClosed();
 
@@ -402,6 +413,15 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             {
                 ThrowHR(E_INVALIDARG, HStringReference(Strings::ImageBrushRequiresSourceRectangle).Get());
             }
+
+            // If our input image is an effect graph, make sure it is fully configured to match the target DPI.
+            if (m_effectNeedingDpiFixup && deviceContext)
+            {
+                float targetDpi = GetDpi(deviceContext);
+
+                m_effectNeedingDpiFixup->GetRealizedEffectNode(deviceContext, targetDpi);
+            }
+
             return m_d2dImageBrush;
         }
     }
@@ -416,7 +436,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             return m_d2dImageBrush;
     }
 
-    IFACEMETHODIMP CanvasImageBrush::GetResource(IUnknown** resource)
+    IFACEMETHODIMP CanvasImageBrush::GetResource(REFIID iid, void** resource)
     {
         return ExceptionBoundary(
             [=]
@@ -424,9 +444,9 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
                 ThrowIfClosed();
 
                 if (m_useBitmapBrush)
-                    ThrowIfFailed(m_d2dBitmapBrush.CopyTo(resource));
+                    ThrowIfFailed(m_d2dBitmapBrush.CopyTo(iid, resource));
                 else
-                    ThrowIfFailed(m_d2dImageBrush.CopyTo(resource));
+                    ThrowIfFailed(m_d2dImageBrush.CopyTo(iid, resource));
             });
     }
 

@@ -42,6 +42,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
     class CanvasDrawingSession : RESOURCE_WRAPPER_RUNTIME_CLASS(
         CanvasDrawingSessionTraits,
+        ICanvasResourceCreatorWithDpi,
         ICanvasResourceCreator)
     {
         InspectableClass(RuntimeClass_Microsoft_Graphics_Canvas_CanvasDrawingSession, BaseTrust);
@@ -97,6 +98,45 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         IFACEMETHOD(DrawImageAtOrigin)(
             ICanvasImage* image) override;
 
+        IFACEMETHOD(DrawImageWithSourceRect)(
+            ICanvasImage* image,
+            Vector2 offset,
+            Rect sourceRect) override;
+
+        IFACEMETHOD(DrawImageWithSourceRectAndInterpolation)(
+            ICanvasImage* image,
+            Vector2 offset,
+            Rect sourceRect,
+            CanvasImageInterpolation interpolation) override;
+
+        IFACEMETHOD(DrawImageWithSourceRectAndInterpolationAndComposite)(
+            ICanvasImage* image,
+            Vector2 offset,
+            Rect sourceRect,
+            CanvasImageInterpolation interpolation,
+            CanvasComposite composite) override;
+
+        IFACEMETHOD(DrawImageAtCoordsWithSourceRect)(
+            ICanvasImage* image,
+            float x,
+            float y,
+            Rect sourceRect) override;
+
+        IFACEMETHOD(DrawImageAtCoordsWithSourceRectAndInterpolation)(
+            ICanvasImage* image,
+            float x,
+            float y,
+            Rect sourceRect,
+            CanvasImageInterpolation interpolation) override;
+
+        IFACEMETHOD(DrawImageAtCoordsWithSourceRectAndInterpolationAndComposite)(
+            ICanvasImage* image,
+            float x,
+            float y,
+            Rect sourceRect,
+            CanvasImageInterpolation interpolation,
+            CanvasComposite composite) override;
+
         IFACEMETHOD(DrawBitmapWithDestRect)(
             ICanvasBitmap* bitmap,
             Rect destinationRect) override;
@@ -105,6 +145,27 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             ICanvasBitmap* bitmap,
             Rect destinationRect,
             Rect sourceRect) override;
+
+        IFACEMETHOD(DrawBitmapWithDestRectAndSourceRectAndOpacity)(
+            ICanvasBitmap* bitmap,
+            Rect destinationRect,
+            Rect sourceRect,
+            float opacity) override;
+
+        IFACEMETHOD(DrawBitmapWithDestRectAndSourceRectAndOpacityAndInterpolation)(
+            ICanvasBitmap* bitmap,
+            Rect destinationRect,
+            Rect sourceRect,
+            float opacity,
+            CanvasImageInterpolation interpolation) override;
+
+        IFACEMETHOD(DrawBitmapWithDestRectAndSourceRectAndOpacityAndInterpolationAndPerspective)(
+            ICanvasBitmap* bitmap,
+            Rect destinationRect,
+            Rect sourceRect,
+            float opacity,
+            CanvasImageInterpolation interpolation,
+            ABI::Microsoft::Graphics::Canvas::Numerics::Matrix4x4 perspective) override;
 
         //
         // DrawLine
@@ -804,6 +865,15 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
         IFACEMETHODIMP get_Device(ICanvasDevice** value);
 
+        //
+        // ICanvasResourceCreatorWithDpi
+        //
+
+        IFACEMETHODIMP get_Dpi(float* dpi);
+
+        IFACEMETHODIMP ConvertPixelsToDips(int pixels, float* dips);
+        IFACEMETHODIMP ConvertDipsToPixels(float dips, int* pixels);
+
     private:
         void DrawLineImpl(
             Vector2 const& p0,
@@ -865,11 +935,22 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         ICanvasTextFormat* GetDefaultTextFormat();
 
         ID2D1SolidColorBrush* GetColorBrush(ABI::Windows::UI::Color const& color);
+        ComPtr<ID2D1Brush> ToD2DBrush(ICanvasBrush* brush);
+
+        HRESULT DrawImageImpl(
+            ICanvasImage* image,
+            Vector2 offset,
+            Rect* sourceRect,
+            CanvasImageInterpolation interpolation,
+            CanvasComposite composite);
 
         HRESULT DrawBitmapWithDestRectAndSourceRectImpl(
             ICanvasBitmap* bitmap,
             Rect destinationRect,
-            D2D1_RECT_F* d2dSourceRect);
+            Rect* sourceRect,
+            float opacity,
+            CanvasImageInterpolation interpolation,
+            ABI::Microsoft::Graphics::Canvas::Numerics::Matrix4x4* perspective);
     };
 
 
@@ -902,5 +983,32 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
     public:
         IMPLEMENT_DEFAULT_ICANVASFACTORYNATIVE();
+    };
+
+
+    //
+    // A CanvasDrawingSessionAdapter that calls BeginDraw and EndDraw on the
+    // device context.
+    //
+    class SimpleCanvasDrawingSessionAdapter : public ICanvasDrawingSessionAdapter
+    {
+        ComPtr<ID2D1DeviceContext1> m_d2dDeviceContext;
+
+    public:
+        SimpleCanvasDrawingSessionAdapter(ID2D1DeviceContext1* d2dDeviceContext)
+            : m_d2dDeviceContext(d2dDeviceContext) 
+        {
+            d2dDeviceContext->BeginDraw();
+        }
+
+        virtual D2D1_POINT_2F GetRenderingSurfaceOffset() override
+        {
+            return D2D1::Point2F(0, 0);
+        }
+
+        virtual void EndDraw() override
+        {
+            ThrowIfFailed(m_d2dDeviceContext->EndDraw());
+        }
     };
 }}}}

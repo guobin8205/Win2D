@@ -12,7 +12,7 @@
 
 #pragma once
 
-#include "CanvasSolidColorBrush.h"
+#include "CanvasBrush.h"
 #include "ErrorHandling.h"
 
 namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
@@ -23,35 +23,38 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
     {
         static_assert(std::is_pointer<TInput>::value, "Types must be pointers");
         static_assert(std::is_pointer<TOutput>::value, "Types must be pointers");
+
         static_assert(sizeof(TInput) == sizeof(TOutput), "Types must be the same size");
 
         // Replace eg. "Foo const*" with "Foo*".
         typedef std::add_pointer<std::remove_const<std::remove_pointer<TOutput>::type>::type>::type TOutputWithoutConst;
-        typedef std::add_pointer<std::remove_const<std::remove_pointer<TInput>::type>::type>::type TInputWithoutConst;
+        typedef std::add_pointer<std::remove_const<std::remove_pointer<TInput> ::type>::type>::type TInputWithoutConst;
 
-        ValidateReinterpretAs<TOutputWithoutConst, TInputWithoutConst>();
+        static_assert(ValidateReinterpretAs<TOutputWithoutConst, TInputWithoutConst> ::value ||
+                      ValidateReinterpretAs<TInputWithoutConst,  TOutputWithoutConst>::value, "Invalid ReinterpretAs type parameters");
 
         return reinterpret_cast<TOutput>(value);
     }
 
     template<typename TOutput, typename TInput> TOutput StaticCastAs(TInput value)
     {
-        ValidateStaticCastAs<TOutput, TInput>();
+        static_assert(ValidateStaticCastAs<TOutput, TInput> ::value ||
+                      ValidateStaticCastAs<TInput,  TOutput>::value, "Invalid StaticCastAs type parameters");
 
         return static_cast<TOutput>(value);
     }
 
-    template<typename TOutput, typename TInput> void ValidateReinterpretAs()
+    template<typename TOutput, typename TInput>
+    struct ValidateReinterpretAs : std::false_type
     {
-        static_assert(false, "Invalid ReinterpretAs type parameters");
-    }
+    };
 
-    template<typename TOutput, typename TInput> void ValidateStaticCastAs()
+    template<typename TOutput, typename TInput>
+    struct ValidateStaticCastAs : std::false_type
     {
-        static_assert(false, "Invalid StaticCastAs type parameters");
-    }
+    };
 
-    template<> inline void ValidateReinterpretAs<D2D1_MATRIX_3X2_F*, Numerics::Matrix3x2*>()
+    template<> struct ValidateReinterpretAs<D2D1_MATRIX_3X2_F*, Numerics::Matrix3x2*> : std::true_type
     {
         static_assert(offsetof(D2D1_MATRIX_3X2_F, _11) == offsetof(Numerics::Matrix3x2, M11), "Matrix3x2 layout must match D2D1_MATRIX_3X2_F");
         static_assert(offsetof(D2D1_MATRIX_3X2_F, _12) == offsetof(Numerics::Matrix3x2, M12), "Matrix3x2 layout must match D2D1_MATRIX_3X2_F");
@@ -59,59 +62,77 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         static_assert(offsetof(D2D1_MATRIX_3X2_F, _22) == offsetof(Numerics::Matrix3x2, M22), "Matrix3x2 layout must match D2D1_MATRIX_3X2_F");
         static_assert(offsetof(D2D1_MATRIX_3X2_F, _31) == offsetof(Numerics::Matrix3x2, M31), "Matrix3x2 layout must match D2D1_MATRIX_3X2_F");
         static_assert(offsetof(D2D1_MATRIX_3X2_F, _32) == offsetof(Numerics::Matrix3x2, M32), "Matrix3x2 layout must match D2D1_MATRIX_3X2_F");
-    }
+    };
 
-    template<> inline void ValidateReinterpretAs<Numerics::Vector4*, D2D1_COLOR_F*>()
+    template<> struct ValidateReinterpretAs<DXGI_MATRIX_3X2_F*, Numerics::Matrix3x2*> : std::true_type
+    {
+        static_assert(offsetof(DXGI_MATRIX_3X2_F, _11) == offsetof(Numerics::Matrix3x2, M11), "Matrix3x2 layout must match DXGI_MATRIX_3X2_F");
+        static_assert(offsetof(DXGI_MATRIX_3X2_F, _12) == offsetof(Numerics::Matrix3x2, M12), "Matrix3x2 layout must match DXGI_MATRIX_3X2_F");
+        static_assert(offsetof(DXGI_MATRIX_3X2_F, _21) == offsetof(Numerics::Matrix3x2, M21), "Matrix3x2 layout must match DXGI_MATRIX_3X2_F");
+        static_assert(offsetof(DXGI_MATRIX_3X2_F, _22) == offsetof(Numerics::Matrix3x2, M22), "Matrix3x2 layout must match DXGI_MATRIX_3X2_F");
+        static_assert(offsetof(DXGI_MATRIX_3X2_F, _31) == offsetof(Numerics::Matrix3x2, M31), "Matrix3x2 layout must match DXGI_MATRIX_3X2_F");
+        static_assert(offsetof(DXGI_MATRIX_3X2_F, _32) == offsetof(Numerics::Matrix3x2, M32), "Matrix3x2 layout must match DXGI_MATRIX_3X2_F");
+    };
+
+    template<> struct ValidateReinterpretAs<D2D1_MATRIX_4X4_F*, Numerics::Matrix4x4*> : std::true_type
+    {
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _11) == offsetof(Numerics::Matrix4x4, M11), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _12) == offsetof(Numerics::Matrix4x4, M12), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _13) == offsetof(Numerics::Matrix4x4, M13), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _14) == offsetof(Numerics::Matrix4x4, M14), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _21) == offsetof(Numerics::Matrix4x4, M21), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _22) == offsetof(Numerics::Matrix4x4, M22), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _23) == offsetof(Numerics::Matrix4x4, M23), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _24) == offsetof(Numerics::Matrix4x4, M24), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _31) == offsetof(Numerics::Matrix4x4, M31), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _32) == offsetof(Numerics::Matrix4x4, M32), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _33) == offsetof(Numerics::Matrix4x4, M33), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _34) == offsetof(Numerics::Matrix4x4, M34), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _41) == offsetof(Numerics::Matrix4x4, M41), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _42) == offsetof(Numerics::Matrix4x4, M42), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _43) == offsetof(Numerics::Matrix4x4, M43), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+        static_assert(offsetof(D2D1_MATRIX_4X4_F, _44) == offsetof(Numerics::Matrix4x4, M44), "Matrix4x4 layout must match D2D1_MATRIX_4X4_F");
+    };
+
+    template<> struct ValidateReinterpretAs<Numerics::Vector4*, D2D1_COLOR_F*> : std::true_type
     {
         static_assert(offsetof(D2D1_COLOR_F, r) == offsetof(Numerics::Vector4, X), "Vector4 layout must match D2D1_COLOR_F");
         static_assert(offsetof(D2D1_COLOR_F, g) == offsetof(Numerics::Vector4, Y), "Vector4 layout must match D2D1_COLOR_F");
         static_assert(offsetof(D2D1_COLOR_F, b) == offsetof(Numerics::Vector4, Z), "Vector4 layout must match D2D1_COLOR_F");
         static_assert(offsetof(D2D1_COLOR_F, a) == offsetof(Numerics::Vector4, W), "Vector4 layout must match D2D1_COLOR_F");
-    }
+    };
 
-    template<> inline void ValidateReinterpretAs<D2D1_COLOR_F*, Numerics::Vector4*>()
-    {
-        ValidateReinterpretAs<Numerics::Vector4*, D2D1_COLOR_F*>();
-    }
-
-    template<> inline void ValidateReinterpretAs<Numerics::Vector4*, D2D1_RECT_F*>()
+    template<> struct ValidateReinterpretAs<Numerics::Vector4*, D2D1_RECT_F*> : std::true_type
     {
         static_assert(offsetof(D2D1_RECT_F, left)   == offsetof(Numerics::Vector4, X), "Vector4 layout must match D2D1_RECT_F");
         static_assert(offsetof(D2D1_RECT_F, top)    == offsetof(Numerics::Vector4, Y), "Vector4 layout must match D2D1_RECT_F");
         static_assert(offsetof(D2D1_RECT_F, right)  == offsetof(Numerics::Vector4, Z), "Vector4 layout must match D2D1_RECT_F");
         static_assert(offsetof(D2D1_RECT_F, bottom) == offsetof(Numerics::Vector4, W), "Vector4 layout must match D2D1_RECT_F");
-    }
+    };
 
-    template<> inline void ValidateReinterpretAs<D2D1_RECT_F*, Numerics::Vector4*>()
+    template<> struct ValidateReinterpretAs<DXGI_SURFACE_DESC*, DirectX::Direct3D11::Direct3DSurfaceDescription*> : std::true_type
     {
-        ValidateReinterpretAs<Numerics::Vector4*, D2D1_RECT_F*>();
-    }
+        static_assert(offsetof(DXGI_SURFACE_DESC, Width)      == offsetof(DirectX::Direct3D11::Direct3DSurfaceDescription,     Width),                  "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
+        static_assert(offsetof(DXGI_SURFACE_DESC, Height)     == offsetof(DirectX::Direct3D11::Direct3DSurfaceDescription,     Height),                 "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
+        static_assert(offsetof(DXGI_SURFACE_DESC, Format)     == offsetof(DirectX::Direct3D11::Direct3DSurfaceDescription,     Format),                 "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
+        static_assert(offsetof(DXGI_SURFACE_DESC, SampleDesc) == offsetof(DirectX::Direct3D11::Direct3DSurfaceDescription,     MultisampleDescription), "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
+        static_assert(offsetof(DXGI_SAMPLE_DESC,  Count)      == offsetof(DirectX::Direct3D11::Direct3DMultisampleDescription, Count),                  "GraphicsMultisampleDescription layout must match DXGI_SAMPLE_DESC layout");
+        static_assert(offsetof(DXGI_SAMPLE_DESC,  Quality)    == offsetof(DirectX::Direct3D11::Direct3DMultisampleDescription, Quality),                "GraphicsMultisampleDescription layout must match DXGI_SAMPLE_DESC layout");
+    };
 
-    template<> inline void ValidateReinterpretAs<DXGI_SURFACE_DESC*, DirectX::Direct3D11::Direct3DSurfaceDescription*>()
+    template<> struct ValidateStaticCastAs<CanvasEdgeBehavior, D2D1_EXTEND_MODE> : std::true_type
     {
-        using namespace DirectX::Direct3D11;
-        static_assert(sizeof(DXGI_SURFACE_DESC) == sizeof(Direct3DSurfaceDescription), "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
-        static_assert(offsetof(DXGI_SURFACE_DESC, Width) == offsetof(Direct3DSurfaceDescription, Width), "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
-        static_assert(offsetof(DXGI_SURFACE_DESC, Height) == offsetof(Direct3DSurfaceDescription, Height), "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
-        static_assert(offsetof(DXGI_SURFACE_DESC, Format) == offsetof(Direct3DSurfaceDescription, Format), "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
-        static_assert(offsetof(DXGI_SURFACE_DESC, SampleDesc) == offsetof(Direct3DSurfaceDescription, MultisampleDescription), "Direct3DSurfaceDescription layout must match DXGI_SURFACE_DESC layout");
-        static_assert(offsetof(DXGI_SAMPLE_DESC, Count) == offsetof(Direct3DMultisampleDescription, Count), "GraphicsMultisampleDescription layout must match DXGI_SAMPLE_DESC layout");
-        static_assert(offsetof(DXGI_SAMPLE_DESC, Quality) == offsetof(Direct3DMultisampleDescription, Quality), "GraphicsMultisampleDescription layout must match DXGI_SAMPLE_DESC layout");
-    }
-
-    template<> inline void ValidateStaticCastAs<CanvasEdgeBehavior, D2D1_EXTEND_MODE>()
-    {
-        static_assert(static_cast<uint32_t>(D2D1_EXTEND_MODE_CLAMP) == static_cast<uint32_t>(CanvasEdgeBehavior::Clamp), "CanvasEdgeBehavior must match D2D1_EXTEND_MODE");
-        static_assert(static_cast<uint32_t>(D2D1_EXTEND_MODE_WRAP) == static_cast<uint32_t>(CanvasEdgeBehavior::Wrap), "CanvasEdgeBehavior must match D2D1_EXTEND_MODE");
+        static_assert(static_cast<uint32_t>(D2D1_EXTEND_MODE_CLAMP)  == static_cast<uint32_t>(CanvasEdgeBehavior::Clamp),  "CanvasEdgeBehavior must match D2D1_EXTEND_MODE");
+        static_assert(static_cast<uint32_t>(D2D1_EXTEND_MODE_WRAP)   == static_cast<uint32_t>(CanvasEdgeBehavior::Wrap),   "CanvasEdgeBehavior must match D2D1_EXTEND_MODE");
         static_assert(static_cast<uint32_t>(D2D1_EXTEND_MODE_MIRROR) == static_cast<uint32_t>(CanvasEdgeBehavior::Mirror), "CanvasEdgeBehavior must match D2D1_EXTEND_MODE");
-    }
+    };
 
-    template<> inline void ValidateStaticCastAs<CanvasColorSpace, D2D1_COLOR_SPACE>()
+    template<> struct ValidateStaticCastAs<CanvasColorSpace, D2D1_COLOR_SPACE> : std::true_type
     {
         static_assert(static_cast<uint32_t>(D2D1_COLOR_SPACE_CUSTOM) == static_cast<uint32_t>(CanvasColorSpace::Custom), "CanvasColorSpace must match D2D1_COLOR_SPACE");
-        static_assert(static_cast<uint32_t>(D2D1_COLOR_SPACE_SRGB) == static_cast<uint32_t>(CanvasColorSpace::Srgb), "CanvasColorSpace must match D2D1_COLOR_SPACE");
-        static_assert(static_cast<uint32_t>(D2D1_COLOR_SPACE_SCRGB) == static_cast<uint32_t>(CanvasColorSpace::ScRgb), "CanvasColorSpace must match D2D1_COLOR_SPACE");
-    }
+        static_assert(static_cast<uint32_t>(D2D1_COLOR_SPACE_SRGB)   == static_cast<uint32_t>(CanvasColorSpace::Srgb),   "CanvasColorSpace must match D2D1_COLOR_SPACE");
+        static_assert(static_cast<uint32_t>(D2D1_COLOR_SPACE_SCRGB)  == static_cast<uint32_t>(CanvasColorSpace::ScRgb),  "CanvasColorSpace must match D2D1_COLOR_SPACE");
+    };
 
     inline float ToNormalizedFloat(uint8_t v)
     {
@@ -176,48 +197,6 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         return ToWindowsColor(D2D1_COLOR_F{ vector.X, vector.Y, vector.Z, 1 });
     }
 
-    inline RECT ToRECT(ABI::Windows::Foundation::Rect const& rect)
-    {
-        float floatRight = rect.X + rect.Width;
-        float floatBottom = rect.Y + rect.Height;
-
-        //
-        // Outside this range the conversion becomes inprecise, so we don't
-        // allow it.  This is because ToRECT is generally used to convert to a
-        // RECT that is going to specify a region in pixels, and float precision
-        // errors could have very surprising effects here.
-        //
-        // This causes us a problem because VirtualSurfaceImageSources may want
-        // to specify regions with values up to 17000000 and we cannot reliably
-        // convert Rect to RECT for all regions in the VSIS.
-        //
-        // Realistically this won't happen since nobody would create a VSIS that
-        // was 1x17000000.  The next valid size would be 2x8500000, and this
-        // falls within this range, and even that is excessively rectangular.
-        //
-        const float maxMagnitude = 16777216.0f;
-        const float minMagnitude = -maxMagnitude;
-
-        if (rect.X < minMagnitude || rect.X > maxMagnitude)
-            ThrowHR(E_INVALIDARG);
-
-        if (rect.Y < minMagnitude || rect.Y > maxMagnitude)
-            ThrowHR(E_INVALIDARG);
-
-        if (floatRight < minMagnitude || floatRight > maxMagnitude)
-            ThrowHR(E_INVALIDARG);
-
-        if (floatBottom < minMagnitude || floatBottom > maxMagnitude)
-            ThrowHR(E_INVALIDARG);
-
-        auto left   = static_cast<long>(rect.X);
-        auto top    = static_cast<long>(rect.Y);
-        auto right  = static_cast<long>(floatRight);
-        auto bottom = static_cast<long>(floatBottom);
-
-        return RECT{ left, top, right, bottom };
-    }
-
     inline D2D1_POINT_2F ToD2DPoint(Numerics::Vector2 const& point)
     {
         return D2D1_POINT_2F{ point.X, point.Y };
@@ -249,18 +228,28 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         return rect;
     }
 
-    inline D2D1_SIZE_U ToD2DSizeU(float width, float height)
+    inline D2D1_RECT_U ToD2DRectU(int32_t left, int32_t top, int32_t width, int32_t height)
     {
+        if (left < 0) ThrowHR(E_INVALIDARG);
+        if (top < 0) ThrowHR(E_INVALIDARG);
         if (width < 0) ThrowHR(E_INVALIDARG);
         if (height < 0) ThrowHR(E_INVALIDARG);
 
-        if (width > static_cast<float>(UINT_MAX)) ThrowHR(E_INVALIDARG);
-        if (height > static_cast<float>(UINT_MAX)) ThrowHR(E_INVALIDARG);
+        D2D1_RECT_U d2dRect;
+        d2dRect.left = static_cast<UINT32>(left);
+        d2dRect.top = static_cast<UINT32>(top);
+        d2dRect.right = d2dRect.left + static_cast<UINT32>(width);
+        d2dRect.bottom = d2dRect.top + static_cast<UINT32>(height);
 
-        if (floorf(width) != width) ThrowHR(E_INVALIDARG);
-        if (floorf(height) != height) ThrowHR(E_INVALIDARG);
+        return d2dRect;
+    }
 
-        return D2D1_SIZE_U{ static_cast<UINT>(width), static_cast<UINT>(height) };
+    inline D2D1_POINT_2U ToD2DPointU(int32_t x, int32_t y)
+    {
+        if (x < 0) ThrowHR(E_INVALIDARG);
+        if (y < 0) ThrowHR(E_INVALIDARG);
+
+        return D2D1::Point2U(x, y);
     }
 
     inline D2D1_ROUNDED_RECT ToD2DRoundedRect(ABI::Windows::Foundation::Rect const& rect, float rx, float ry)
@@ -273,47 +262,104 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         return D2D1::Ellipse(ToD2DPoint(point), rx, ry);
     }
 
-    inline ComPtr<ID2D1Brush> ToD2DBrush(ICanvasBrush* brush)
+    inline D2D1_COLOR_INTERPOLATION_MODE ToD2DColorInterpolation(CanvasAlphaMode alphaMode)
     {
-        if (!brush)
-            return nullptr;
-
-        ComPtr<ICanvasBrushInternal> internal;
-        ThrowIfFailed(brush->QueryInterface(IID_PPV_ARGS(&internal)));
-        return internal->GetD2DBrush();
-    }
-
-    inline D2D1_COLOR_INTERPOLATION_MODE ToD2DColorInterpolation(CanvasAlphaBehavior alphaBehavior)
-    {
-        switch (alphaBehavior)
+        switch (alphaMode)
         {
-            case CanvasAlphaBehavior::Premultiplied: return D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED;
-            case CanvasAlphaBehavior::Straight: return D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT;
-            case CanvasAlphaBehavior::Ignore:
+            case CanvasAlphaMode::Premultiplied: return D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED;
+            case CanvasAlphaMode::Straight: return D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT;
+            case CanvasAlphaMode::Ignore:
             default: return D2D1_COLOR_INTERPOLATION_MODE_FORCE_DWORD;
         }
     }
 
-    inline D2D1_ALPHA_MODE ToD2DAlphaMode(CanvasAlphaBehavior alphaBehavior)
+    inline D2D1_ALPHA_MODE ConvertDxgiAlphaModeToD2DAlphaMode(DXGI_ALPHA_MODE alphaMode)
     {
-        switch (alphaBehavior)
+        switch (alphaMode)
         {
-        case CanvasAlphaBehavior::Premultiplied: return D2D1_ALPHA_MODE_PREMULTIPLIED;
-        case CanvasAlphaBehavior::Straight: return D2D1_ALPHA_MODE_STRAIGHT;
-        case CanvasAlphaBehavior::Ignore: return D2D1_ALPHA_MODE_IGNORE;
-        default: return D2D1_ALPHA_MODE_FORCE_DWORD;
+            case DXGI_ALPHA_MODE_PREMULTIPLIED: return D2D1_ALPHA_MODE_PREMULTIPLIED; 
+            case DXGI_ALPHA_MODE_STRAIGHT: return D2D1_ALPHA_MODE_STRAIGHT; 
+            case DXGI_ALPHA_MODE_IGNORE: return D2D1_ALPHA_MODE_IGNORE; 
+            default:
+                assert(false); // Unexpected
+                ThrowHR(E_UNEXPECTED);
         }
     }
 
-    inline CanvasAlphaBehavior FromD2DColorInterpolation(D2D1_COLOR_INTERPOLATION_MODE colorInterpolation)
+    inline CanvasAlphaMode FromD2DAlphaMode(D2D1_ALPHA_MODE alphaMode)
+    {
+        switch (alphaMode)
+        {
+            case D2D1_ALPHA_MODE_PREMULTIPLIED: return CanvasAlphaMode::Premultiplied;
+            case D2D1_ALPHA_MODE_STRAIGHT: return CanvasAlphaMode::Straight;
+            case D2D1_ALPHA_MODE_IGNORE: return CanvasAlphaMode::Ignore;
+            default: assert(false); return CanvasAlphaMode::Premultiplied;
+        }
+    }
+
+    inline D2D1_ALPHA_MODE ToD2DAlphaMode(CanvasAlphaMode alphaMode)
+    {
+        switch (alphaMode)
+        {
+            case CanvasAlphaMode::Premultiplied: return D2D1_ALPHA_MODE_PREMULTIPLIED;
+            case CanvasAlphaMode::Straight: return D2D1_ALPHA_MODE_STRAIGHT;
+            case CanvasAlphaMode::Ignore: return D2D1_ALPHA_MODE_IGNORE;
+            default: return D2D1_ALPHA_MODE_FORCE_DWORD;
+        }
+    }
+
+    inline CanvasAlphaMode FromD2DColorInterpolation(D2D1_COLOR_INTERPOLATION_MODE colorInterpolation)
     {
         switch (colorInterpolation)
         {
-            case D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED: return CanvasAlphaBehavior::Premultiplied;
-            case D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT: return CanvasAlphaBehavior::Straight;
+            case D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED: return CanvasAlphaMode::Premultiplied;
+            case D2D1_COLOR_INTERPOLATION_MODE_STRAIGHT: return CanvasAlphaMode::Straight;
             default: assert(false); break;
         }
-        return CanvasAlphaBehavior::Premultiplied;
+        return CanvasAlphaMode::Premultiplied;
+    }
+
+    inline D2D1_COLORMATRIX_ALPHA_MODE ToD2DColorMatrixAlphaMode(CanvasAlphaMode alphaMode)
+    {
+        switch (alphaMode)
+        {
+            case CanvasAlphaMode::Premultiplied: return D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED;
+            case CanvasAlphaMode::Straight: return D2D1_COLORMATRIX_ALPHA_MODE_STRAIGHT;
+            case CanvasAlphaMode::Ignore:
+            default: return D2D1_COLORMATRIX_ALPHA_MODE_FORCE_DWORD;
+        }
+    }
+
+    inline CanvasAlphaMode FromD2DColorMatrixAlphaMode(D2D1_COLORMATRIX_ALPHA_MODE alphaMode)
+    {
+        switch (alphaMode)
+        {
+            case D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED: return CanvasAlphaMode::Premultiplied;
+            case D2D1_COLORMATRIX_ALPHA_MODE_STRAIGHT: return CanvasAlphaMode::Straight;
+            default: assert(false); return CanvasAlphaMode::Premultiplied;
+        }
+    }
+
+    inline CanvasAlphaMode FromDxgiAlphaMode(DXGI_ALPHA_MODE alphaMode)
+    {
+        switch (alphaMode)
+        {
+            case DXGI_ALPHA_MODE_PREMULTIPLIED: return CanvasAlphaMode::Premultiplied;
+            case DXGI_ALPHA_MODE_STRAIGHT: return CanvasAlphaMode::Straight;
+            case DXGI_ALPHA_MODE_IGNORE: return CanvasAlphaMode::Ignore;
+            default: assert(false); return CanvasAlphaMode::Premultiplied;
+        }
+    }
+
+    inline DXGI_ALPHA_MODE ToDxgiAlphaMode(CanvasAlphaMode alphaMode)
+    {
+        switch (alphaMode)
+        {
+            case CanvasAlphaMode::Premultiplied: return DXGI_ALPHA_MODE_PREMULTIPLIED;
+            case CanvasAlphaMode::Straight: return DXGI_ALPHA_MODE_STRAIGHT;
+            case CanvasAlphaMode::Ignore: return DXGI_ALPHA_MODE_IGNORE;
+            default: assert(false); return DXGI_ALPHA_MODE_PREMULTIPLIED;
+        }
     }
 
     inline D2D1_BUFFER_PRECISION ToD2DBufferPrecision(CanvasBufferPrecision bufferPrecision)
@@ -340,5 +386,40 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             case D2D1_BUFFER_PRECISION_32BPC_FLOAT: return CanvasBufferPrecision::Precision32Float;
             default: assert(false); return CanvasBufferPrecision::Precision8UIntNormalized;
         }
+    }
+
+    inline CanvasSwapChainRotation FromDxgiRotation(DXGI_MODE_ROTATION rotation)
+    {
+        switch (rotation)
+        {
+			case DXGI_MODE_ROTATION_UNSPECIFIED:
+			case DXGI_MODE_ROTATION_IDENTITY: return CanvasSwapChainRotation::None;
+			case DXGI_MODE_ROTATION_ROTATE90: return CanvasSwapChainRotation::Rotate90;
+			case DXGI_MODE_ROTATION_ROTATE180: return CanvasSwapChainRotation::Rotate180;
+			case DXGI_MODE_ROTATION_ROTATE270: return CanvasSwapChainRotation::Rotate270;
+            default: assert(false); return CanvasSwapChainRotation::None;
+        }
+    }
+
+    inline DXGI_MODE_ROTATION ToDxgiRotation(CanvasSwapChainRotation rotation)
+    {
+        switch (rotation)
+        {
+			case CanvasSwapChainRotation::None: return DXGI_MODE_ROTATION_IDENTITY;
+			case CanvasSwapChainRotation::Rotate90: return DXGI_MODE_ROTATION_ROTATE90;
+			case CanvasSwapChainRotation::Rotate180: return DXGI_MODE_ROTATION_ROTATE180;
+			case CanvasSwapChainRotation::Rotate270: return DXGI_MODE_ROTATION_ROTATE270;
+            default: assert(false); return DXGI_MODE_ROTATION_IDENTITY;
+        }
+    }
+
+    inline float PixelsToDips(int pixels, float dpi)
+    {
+        return pixels * DEFAULT_DPI / dpi;
+    }
+
+    inline int DipsToPixels(float dips, float dpi)
+    {
+        return (int)roundf(dips * dpi / DEFAULT_DPI);
     }
 }}}}

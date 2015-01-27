@@ -17,11 +17,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
+using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.UI;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Input;
 
 namespace ExampleGallery
 {
@@ -33,9 +33,12 @@ namespace ExampleGallery
             Blend,
             Border,
             Brightness,
+            ColorMatrix,
             Composite,
+            ConvolveMatrix,
             Crop,
             DirectionalBlur,
+            DiscreteTransfer,
             DisplacementMap,
             GaussianBlur,
             HueRotation,
@@ -61,46 +64,58 @@ namespace ExampleGallery
 
         CanvasBitmap bitmapTiger;
         ICanvasImage effect;
+        Vector2 currentEffectSize;
         string textLabel;
         Action<float> animationFunction;
         Stopwatch timer;
-        bool isLoaded;
 
-        async void Canvas_CreateResources(CanvasControl sender, object args)
+        void Canvas_CreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
+        {
+            args.TrackAsyncAction(Canvas_CreateResourcesAsync(sender).AsAsyncAction());
+        }
+
+        async Task Canvas_CreateResourcesAsync(CanvasControl sender)
         {
             bitmapTiger = await CanvasBitmap.LoadAsync(sender, "imageTiger.jpg");
-            
             effect = CreateEffect();
-
-            isLoaded = true;
-            this.canvas.Invalidate();
         }
 
         private void Canvas_Draw(CanvasControl sender, CanvasDrawEventArgs args)
         {
             var ds = args.DrawingSession;
-            ds.Clear(Color.FromArgb(0, 0, 0, 0));
 
-            if (!isLoaded)
-                return;
+            float w = (float)sender.ActualWidth;
+            float h = (float)sender.ActualHeight;
 
-            var position = new Vector2((float)sender.ActualWidth, (float)sender.ActualHeight) / 2;
-            position -= bitmapTiger.Size.ToVector2() / 2;
-
+            // Animate and then display the current image effect.
             animationFunction((float)timer.Elapsed.TotalSeconds);
 
-            ds.DrawImage(effect, position);
+            ds.DrawImage(effect, (new Vector2(w, h) - currentEffectSize) / 2);
 
-            string text = GetActiveEffectNames();
+            // Draw text showing which effects are in use, but only if the screen is large enough to fit it.
+            const float minSizeToShowText = 550;
 
-            if (textLabel != null)
+            if (w > minSizeToShowText && h > minSizeToShowText)
             {
-                text += "\n\n" + textLabel;
+                string text = GetActiveEffectNames();
+
+                if (textLabel != null)
+                {
+                    text += "\n\n" + textLabel;
+                }
+
+                ds.DrawText(text, 0, 80, Colors.White);
             }
 
-            ds.DrawText(text, 0, 0, Colors.White);
-
             sender.Invalidate();
+        }
+
+        private void Canvas_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (canvas.ReadyToDraw)
+            {
+                effect = CreateEffect();
+            }
         }
 
         private void SettingsCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -109,7 +124,7 @@ namespace ExampleGallery
                                 e.RemovedItems.Count != 1 ||
                                 (EffectType)e.AddedItems[0] != (EffectType)e.RemovedItems[0];
 
-            if (reallyChanged && isLoaded)
+            if (reallyChanged && canvas.ReadyToDraw)
             {
                 effect = CreateEffect();
             }
@@ -118,6 +133,7 @@ namespace ExampleGallery
         private ICanvasImage CreateEffect()
         {
             timer = Stopwatch.StartNew();
+            currentEffectSize = bitmapTiger.Size.ToVector2();
             textLabel = null;
 
             switch (CurrentEffect)
@@ -134,14 +150,23 @@ namespace ExampleGallery
                 case EffectType.Brightness:
                     return CreateBrightness();
 
+                case EffectType.ColorMatrix:
+                    return CreateColorMatrix();
+
                 case EffectType.Composite:
                     return CreateComposite();
+
+                case EffectType.ConvolveMatrix:
+                    return CreateConvolveMatrix();
 
                 case EffectType.Crop:
                     return CreateCrop();
 
                 case EffectType.DirectionalBlur:
                     return CreateDirectionalBlur();
+
+                case EffectType.DiscreteTransfer:
+                    return CreateDiscreteTransfer();
 
                 case EffectType.DisplacementMap:
                     return CreateDisplacementMap();
@@ -272,9 +297,44 @@ namespace ExampleGallery
             return brightnessEffect;
         }
 
+        private ICanvasImage CreateColorMatrix()
+        {
+            var colorMatrixEffect = new ColorMatrixEffect
+            {
+                Source = bitmapTiger
+            };
+
+            // Animation cycles through different color settings.
+            animationFunction = elapsedTime =>
+            {
+                var matrix = new Matrix5x4();
+
+                matrix.M11 = (float)Math.Sin(elapsedTime * 1.5);
+                matrix.M21 = (float)Math.Sin(elapsedTime * 1.4);
+                matrix.M31 = (float)Math.Sin(elapsedTime * 1.3);
+                matrix.M51 = (1 - matrix.M11 - matrix.M21 - matrix.M31) / 2;
+
+                matrix.M12 = (float)Math.Sin(elapsedTime * 1.2);
+                matrix.M22 = (float)Math.Sin(elapsedTime * 1.1);
+                matrix.M32 = (float)Math.Sin(elapsedTime * 1.0);
+                matrix.M52 = (1 - matrix.M12 - matrix.M22 - matrix.M32) / 2;
+
+                matrix.M13 = (float)Math.Sin(elapsedTime * 0.9);
+                matrix.M23 = (float)Math.Sin(elapsedTime * 0.8);
+                matrix.M33 = (float)Math.Sin(elapsedTime * 0.7);
+                matrix.M53 = (1 - matrix.M13 - matrix.M23 - matrix.M33) / 2;
+
+                matrix.M44 = 1;
+
+                colorMatrixEffect.ColorMatrix = matrix;
+            };
+
+            return colorMatrixEffect;
+        }
+
         private ICanvasImage CreateComposite()
         {
-            var compositeEffect = new CompositeEffect { Mode = CompositeEffectMode.SourceOver };
+            var compositeEffect = new CompositeEffect { Mode = CanvasComposite.SourceOver };
 
             var transformEffects = new List<Transform3DEffect>();
 
@@ -300,7 +360,62 @@ namespace ExampleGallery
                 }
             };
 
+            currentEffectSize = Vector2.Zero;
+
             return compositeEffect;
+        }
+
+        private ICanvasImage CreateConvolveMatrix()
+        {
+            var convolveEffect = new ConvolveMatrixEffect
+            {
+                Source = bitmapTiger,
+                KernelWidth = 3,
+                KernelHeight = 3,
+            };
+
+            float[][] filters =
+            {
+                new float[] { 0, 1, 0, 1, -4, 1, 0, 1, 0 },
+                new float[] { -2, -1, 0, -1, 1, 1, 0, 1, 2 },
+                new float[] { -1, -2, -1, -2, 13, -2, -1, -2, -1 },
+                new float[] { 1f / 9, 1f / 9, 1f / 9, 1f / 9, 1f / 9, 1f / 9, 1f / 9, 1f / 9, 1f / 9 },
+            };
+
+            string[] filterNames =
+            {
+                "Edge detect",
+                "Emboss",
+                "Sharpen",
+                "Box blur",
+            };
+
+            // Animation interpolates between different convolve filter matrices.
+            animationFunction = elapsedTime =>
+            {
+                int prevFilter = (int)(elapsedTime % filters.Length);
+                int nextFilter = (prevFilter + 1) % filters.Length;
+
+                float mu = elapsedTime % 1;
+
+                var convolve = new float[9];
+
+                for (int i = 0; i < 9; i++)
+                {
+                    convolve[i] = filters[prevFilter][i] * (1 - mu) +
+                                  filters[nextFilter][i] * mu;
+                }
+
+                convolveEffect.KernelMatrix = convolve;
+
+                textLabel = string.Format("{0}\n{{\n    {1:0.0}, {2:0.0}, {3:0.0},\n    {4:0.0}, {5:0.0}, {6:0.0},\n    {7:0.0}, {8:0.0}, {9:0.0}\n}}",
+                                          filterNames[mu < 0.5 ? prevFilter : nextFilter],
+                                          convolve[0], convolve[1], convolve[2],
+                                          convolve[3], convolve[4], convolve[5],
+                                          convolve[6], convolve[7], convolve[8]);
+            };
+
+            return convolveEffect;
         }
 
         private ICanvasImage CreateCrop()
@@ -337,11 +452,38 @@ namespace ExampleGallery
             // Animation changes the blur direction and amount.
             animationFunction = elapsedTime =>
             {
-                blurEffect.Angle = (elapsedTime * 50) % 360;
+                blurEffect.Angle = elapsedTime;
                 blurEffect.BlurAmount = ((float)Math.Sin(elapsedTime * 2) + 1) * 16;
             };
 
             return blurEffect;
+        }
+
+        private ICanvasImage CreateDiscreteTransfer()
+        {
+            var discreteTransferEffect = new DiscreteTransferEffect
+            {
+                Source = bitmapTiger
+            };
+
+            float[][] tables =
+            {
+                new float[] { 0, 1 },
+                new float[] { 1, 0 },
+                new float[] { 0, 0.5f, 1 },
+            };
+
+            // Animation switches between different quantisation color transfer tables.
+            animationFunction = elapsedTime =>
+            {
+                int t = (int)(elapsedTime * 2);
+
+                discreteTransferEffect.RedTable = tables[t % tables.Length];
+                discreteTransferEffect.GreenTable = tables[(t / tables.Length) % tables.Length];
+                discreteTransferEffect.BlueTable = tables[(t / tables.Length / tables.Length) % tables.Length];
+            };
+
+            return discreteTransferEffect;
         }
 
         private ICanvasImage CreateDisplacementMap()
@@ -370,6 +512,8 @@ namespace ExampleGallery
                                                                          (float)Math.Sin(elapsedTime) * 50 - 50);
 
                 displacementEffect.Amount = (float)Math.Sin(elapsedTime * 0.7) * 50 + 75;
+
+                currentEffectSize = bitmapTiger.Size.ToVector2() + new Vector2(displacementEffect.Amount / 2);
             };
 
             return displacementEffect;
@@ -401,7 +545,7 @@ namespace ExampleGallery
             // Animation changes the hue.
             animationFunction = elapsedTime =>
             {
-                hueRotationEffect.Angle = (elapsedTime * 250) % 360;
+                hueRotationEffect.Angle = elapsedTime * 4;
             };
 
             return hueRotationEffect;
@@ -442,7 +586,7 @@ namespace ExampleGallery
             {
                 Source = heightMap,
                 HeightMapScale = 2,
-                LimitingConeAngle = 15,
+                LimitingConeAngle = 0.25f,
                 LightTarget = new Vector3(bitmapTiger.Size.ToVector2(), 0) / 2
             };
 
@@ -450,7 +594,7 @@ namespace ExampleGallery
             {
                 Source = heightMap,
                 SpecularExponent = 16,
-                LimitingConeAngle = 15,
+                LimitingConeAngle = 0.25f,
                 LightTarget = new Vector3(bitmapTiger.Size.ToVector2(), 0) / 2
             };
 
@@ -475,14 +619,31 @@ namespace ExampleGallery
                 }
             };
 
+            ICanvasImage finalEffect = compositeEffect;
+
+            // Check the screen size, and scale down our output if the screen is too small to fit the whole thing as-is.
+            var xScaleFactor = (float)canvas.ActualWidth / 750;
+            var yScaleFactor = (float)canvas.ActualHeight / 500;
+
+            var scaleFactor = Math.Min(xScaleFactor, yScaleFactor);
+
+            if (scaleFactor < 1)
+            {
+                finalEffect = new Transform2DEffect
+                {
+                    Source = compositeEffect,
+                    TransformMatrix = Matrix3x2.CreateScale(scaleFactor, bitmapTiger.Size.ToVector2() / 2)
+                };
+            }
+
             // Animation changes the light directions.
             animationFunction = elapsedTime =>
             {
                 distantDiffuseEffect.Azimuth = 
-                distantSpecularEffect.Azimuth = (elapsedTime * 50) % 360;
-                
-                distantDiffuseEffect.Elevation = 
-                distantSpecularEffect.Elevation = 90 + (float)Math.Sin(elapsedTime / 2) * 80;
+                distantSpecularEffect.Azimuth = elapsedTime % ((float)Math.PI * 2);
+
+                distantDiffuseEffect.Elevation =
+                distantSpecularEffect.Elevation = (float)Math.PI / 4 + (float)Math.Sin(elapsedTime / 2) * (float)Math.PI / 8;
 
                 pointDiffuseEffect.LightPosition = 
                 pointSpecularEffect.LightPosition =
@@ -490,7 +651,7 @@ namespace ExampleGallery
                 spotSpecularEffect.LightPosition = new Vector3((float)Math.Cos(elapsedTime), (float)Math.Sin(elapsedTime), 1) * 100;
             };
 
-            return compositeEffect;
+            return finalEffect;
         }
 
         private ICanvasImage CombineDiffuseAndSpecular(ICanvasImage diffuse, ICanvasImage specular, float x, float y)
@@ -519,6 +680,7 @@ namespace ExampleGallery
             var contrastAdjustedTiger = new LinearTransferEffect
             {
                 Source = bitmapTiger,
+
                 RedOffset = -3,
                 GreenOffset = -3,
                 BlueOffset = -3,
@@ -529,21 +691,44 @@ namespace ExampleGallery
                 Source = contrastAdjustedTiger
             };
 
-            var movedTiger = new Transform2DEffect
+            var tigerAlphaWithWhiteRgb = new LinearTransferEffect
             {
-                Source = tigerAlpha
+                Source = tigerAlpha,
+                RedOffset = 1,
+                GreenOffset = 1,
+                BlueOffset = 1,
+                RedSlope = 0,
+                GreenSlope = 0,
+                BlueSlope = 0,
             };
 
-            var turbulenceSize = new Vector2(512, 512);
-
-            var backgroundImage = new Transform2DEffect
+            var recombinedRgbAndAlpha = new ArithmeticCompositeEffect
             {
-                Source = new TurbulenceEffect
+                Source1 = tigerAlphaWithWhiteRgb,
+                Source2 = bitmapTiger,
+            };
+
+            var movedTiger = new Transform2DEffect
+            {
+                Source = recombinedRgbAndAlpha
+            };
+
+            const float turbulenceSize = 128;
+
+            var backgroundImage = new CropEffect
+            {
+                Source = new TileEffect
                 {
-                    Octaves = 8,
-                    Size = turbulenceSize
+                    Source = new TurbulenceEffect
+                    {
+                        Octaves = 8,
+                        Size = new Vector2(turbulenceSize),
+                        Tileable = true
+                    },
+                    SourceRectangle= new Rect(0, 0, turbulenceSize, turbulenceSize)
                 },
-                TransformMatrix = Matrix3x2.CreateTranslation((bitmapTiger.Size.ToVector2() - turbulenceSize) / 2)
+                SourceRectangle = new Rect((bitmapTiger.Size.ToVector2() * -0.5f).ToPoint(),
+                                           (bitmapTiger.Size.ToVector2() * 1.5f).ToPoint())
             };
 
             var tigerOnBackground = new BlendEffect
@@ -578,7 +763,7 @@ namespace ExampleGallery
             // Animation changes the morphology filter kernel size, and switches back and forth between the two modes.
             animationFunction = elapsedTime =>
             {
-                var t = (uint)((elapsedTime * 10) % 50);
+                var t = (int)((elapsedTime * 10) % 50);
 
                 morphologyEffect.Mode = (t < 25) ? MorphologyEffectMode.Erode :
                                                    MorphologyEffectMode.Dilate;
@@ -610,11 +795,11 @@ namespace ExampleGallery
 
         private ICanvasImage CreateShadow()
         {
-            var renderTarget = new CanvasRenderTarget(canvas, new Size(360, 150));
+            var renderTarget = new CanvasRenderTarget(canvas, 360, 150);
 
             using (var ds = renderTarget.CreateDrawingSession())
             {
-                ds.Clear(Colors.Transparent);
+                ds.Clear(Color.FromArgb(0, 0, 0, 0));
 
                 ds.DrawText("This text is drawn onto a rendertarget", 10, 10, Colors.White);
                 ds.DrawText("with a different color per line,", 10, 40, Colors.Red);
@@ -644,6 +829,8 @@ namespace ExampleGallery
             };
 
             animationFunction = elapsedTime => { };
+
+            currentEffectSize = renderTarget.Size.ToVector2();
 
             return compositeEffect;
         }
@@ -676,6 +863,8 @@ namespace ExampleGallery
                                                                                    elapsedTime * 5);
             };
 
+            currentEffectSize = Vector2.Zero;
+
             return transformEffect;
         }
 
@@ -696,17 +885,17 @@ namespace ExampleGallery
             return new CompositeEffect
             {
                 Inputs = { softEdge, effect },
-                Mode = CompositeEffectMode.SourceIn 
+                Mode = CanvasComposite.SourceIn 
             };
         }
 
         private ICanvasImage AddTextOverlay(ICanvasImage effect, float x, float y)
         {
-            var textOverlay = new CanvasRenderTarget(canvas, new Size(200, 30));
+            var textOverlay = new CanvasRenderTarget(canvas, 200, 30);
 
             using (var ds = textOverlay.CreateDrawingSession())
             {
-                ds.Clear(Colors.Transparent);
+                ds.Clear(Color.FromArgb(0, 0, 0, 0));
                 ds.DrawText(effect.GetType().Name.Replace("Effect", ""), 0, 0, Colors.White);
             }
 

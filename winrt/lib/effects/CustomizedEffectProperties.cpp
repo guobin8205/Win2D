@@ -12,6 +12,7 @@
 
 #include "pch.h"
 #include "generated\ArithmeticCompositeEffect.h"
+#include "generated\ColorMatrixEffect.h"
 
 
 // Macro defines effect property get and set methods that pack a floating point 
@@ -23,26 +24,24 @@
                                                                                         \
     IFACEMETHODIMP CLASS_NAME::get_##PROPERTY_NAME(_Out_ float* value)                  \
     {                                                                                   \
-        return ExceptionBoundary(                                                       \
-            [&]                                                                         \
-            {                                                                           \
-                CheckInPointer(value);                                                  \
-                Numerics::Vector4 packedValue;                                          \
-                GetProperty<float[4], Numerics::Vector4>(PROPERTY_INDEX, &packedValue); \
-                *value = packedValue.VECTOR_COMPONENT;                                  \
-            });                                                                         \
+        return ExceptionBoundary([&]                                                    \
+        {                                                                               \
+            CheckInPointer(value);                                                      \
+            Numerics::Vector4 packedValue;                                              \
+            GetProperty<float[4], Numerics::Vector4>(PROPERTY_INDEX, &packedValue);     \
+            *value = packedValue.VECTOR_COMPONENT;                                      \
+        });                                                                             \
     }                                                                                   \
                                                                                         \
     IFACEMETHODIMP CLASS_NAME::put_##PROPERTY_NAME(_In_ float value)                    \
     {                                                                                   \
-        return ExceptionBoundary(                                                       \
-            [&]                                                                         \
-            {                                                                           \
-                Numerics::Vector4 packedValue;                                          \
-                GetProperty<float[4], Numerics::Vector4>(PROPERTY_INDEX, &packedValue); \
-                packedValue.VECTOR_COMPONENT = value;                                   \
-                SetProperty<float[4], Numerics::Vector4>(PROPERTY_INDEX, packedValue);  \
-            });                                                                         \
+        return ExceptionBoundary([&]                                                    \
+        {                                                                               \
+            Numerics::Vector4 packedValue;                                              \
+            GetProperty<float[4], Numerics::Vector4>(PROPERTY_INDEX, &packedValue);     \
+            packedValue.VECTOR_COMPONENT = value;                                       \
+            SetProperty<float[4], Numerics::Vector4>(PROPERTY_INDEX, packedValue);      \
+        });                                                                             \
     }
 
 
@@ -71,4 +70,32 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
         Offset, 
         D2D1_ARITHMETICCOMPOSITE_PROP_COEFFICIENTS, 
         W)
+
+
+    // ColorMatrixEffect.AlphaMode property needs special enum value conversion, because our
+    // CanvasAlphaMode enum doesn't match the numeric values of D2D1_COLORMATRIX_ALPHA_MODE.
+
+    IFACEMETHODIMP ColorMatrixEffect::get_AlphaMode(_Out_ CanvasAlphaMode* value)
+    {
+        return ExceptionBoundary([&]
+        {
+            D2D1_COLORMATRIX_ALPHA_MODE d2dValue;
+            GetProperty<uint32_t>(D2D1_COLORMATRIX_PROP_ALPHA_MODE, &d2dValue);
+            *value = FromD2DColorMatrixAlphaMode(d2dValue);
+        });
+    }
+
+    IFACEMETHODIMP ColorMatrixEffect::put_AlphaMode(_In_ CanvasAlphaMode value)
+    {
+        if (value == CanvasAlphaMode::Ignore)
+        {
+            return E_INVALIDARG;
+        }
+
+        return ExceptionBoundary([&]
+        {
+            SetProperty<uint32_t>(D2D1_COLORMATRIX_PROP_ALPHA_MODE, ToD2DColorMatrixAlphaMode(value));
+        });
+    }
+
 }}}}}

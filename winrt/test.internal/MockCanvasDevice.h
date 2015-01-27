@@ -12,13 +12,17 @@
 
 #pragma once
 
+#include "MockHelpers.h"
+
 namespace canvas
 {
     class MockCanvasDevice : public RuntimeClass<
         RuntimeClassFlags<WinRtClassicComMix>,
         ICanvasDevice,
         CloakedIid<ICanvasDeviceInternal>,
-        ICanvasResourceCreator>
+        ICanvasResourceCreator,
+        IDirect3DDevice,
+        IDirect3DDxgiInterfaceAccess>
     {
     public:        
         std::function<ComPtr<ID2D1Device1>()> MockGetD2DDevice;
@@ -26,12 +30,12 @@ namespace canvas
         std::function<ComPtr<ID2D1SolidColorBrush>(D2D1_COLOR_F const&)> MockCreateSolidColorBrush;
         std::function<ComPtr<ID2D1ImageBrush>(ID2D1Image* image)> MockCreateImageBrush;
         std::function<ComPtr<ID2D1BitmapBrush1>(ID2D1Bitmap1* bitmap)> MockCreateBitmapBrush;
-        std::function<ComPtr<ID2D1Bitmap1>()> MockCreateBitmapFromWicResource;
+        std::function<ComPtr<ID2D1Bitmap1>(IWICFormatConverter* converter, CanvasAlphaMode alpha, float dpi)> MockCreateBitmapFromWicResource;
         std::function<ComPtr<ID2D1Bitmap1>(
             float width,
             float height,
             DirectXPixelFormat format,
-            CanvasAlphaBehavior alpha,
+            CanvasAlphaMode alpha,
             float dpi)> MockCreateRenderTargetBitmap;
         std::function<ComPtr<ID2D1Image>(ICanvasImage* canvasImage)> MockGetD2DImage;
 
@@ -42,14 +46,20 @@ namespace canvas
             CanvasColorSpace preInterpolationSpace,
             CanvasColorSpace postInterpolationSpace,
             CanvasBufferPrecision bufferPrecision,
-            CanvasAlphaBehavior alphaBehavior)> MockCreateGradientStopCollection;
+            CanvasAlphaMode alphaMode)> MockCreateGradientStopCollection;
 
         std::function<ComPtr<ID2D1LinearGradientBrush>(
             ID2D1GradientStopCollection1* stopCollection)> MockCreateLinearGradientBrush;
 
         std::function<ComPtr<ID2D1RadialGradientBrush>(
             ID2D1GradientStopCollection1* stopCollection)> MockCreateRadialGradientBrush;
-        
+
+        CALL_COUNTER_WITH_MOCK(TrimMethod, HRESULT());
+        CALL_COUNTER_WITH_MOCK(GetInterfaceMethod, HRESULT(REFIID,void**));
+        CALL_COUNTER_WITH_MOCK(CreateDeviceContextMethod, ComPtr<ID2D1DeviceContext1>());
+        CALL_COUNTER_WITH_MOCK(CreateSwapChainMethod, ComPtr<IDXGISwapChain2>(int32_t, int32_t, DirectXPixelFormat, int32_t, CanvasAlphaMode));
+        CALL_COUNTER_WITH_MOCK(CreateCommandListMethod, ComPtr<ID2D1CommandList>());
+
         //
         // ICanvasDevice
         //
@@ -60,11 +70,17 @@ namespace canvas
             return E_NOTIMPL;
         }
 
+        IFACEMETHODIMP get_MaximumBitmapSizeInPixels(int32_t* value) override
+        {
+            Assert::Fail(L"Unexpected call to get_MaximumBitmapSizeInPixels");
+            return E_NOTIMPL;
+        }
+
         //
         // ICanvasResourceCreator
         //
 
-        IFACEMETHODIMP get_Device(ICanvasDevice** value)
+        IFACEMETHODIMP get_Device(ICanvasDevice** value) override
         {
             if (!Mockget_Device)
             {
@@ -74,6 +90,23 @@ namespace canvas
 
             Mockget_Device(value);
             return S_OK;
+        }
+
+        //
+        // IDirect3DDevice
+        //
+
+        IFACEMETHODIMP Trim() override
+        {
+            return TrimMethod.WasCalled();
+        }
+
+        //
+        // IDirect3DDxgiInterfaceAccess
+        //
+        IFACEMETHODIMP GetInterface(REFIID iid, void** p) override
+        {
+            return GetInterfaceMethod.WasCalled(iid, p);
         }
 
         //
@@ -91,6 +124,11 @@ namespace canvas
             return MockGetD2DDevice();
         }
 
+        virtual ComPtr<ID2D1DeviceContext1> CreateDeviceContext() override
+        {
+            return CreateDeviceContextMethod.WasCalled();
+        }
+
         virtual ComPtr<ID2D1SolidColorBrush> CreateSolidColorBrush(D2D1_COLOR_F const& color) override
         {
             if (!MockCreateSolidColorBrush)
@@ -104,21 +142,22 @@ namespace canvas
 
         virtual ComPtr<ID2D1Bitmap1> CreateBitmapFromWicResource(
             IWICFormatConverter* converter,
-            CanvasAlphaBehavior alpha) override
+            CanvasAlphaMode alpha,
+            float dpi) override
         {
             if (!MockCreateBitmapFromWicResource)
             {
                 Assert::Fail(L"Unexpected call to CreateBitmapFromWicResource");
                 return nullptr;
             }
-            return MockCreateBitmapFromWicResource();
+            return MockCreateBitmapFromWicResource(converter, alpha, dpi);
         }
 
         virtual ComPtr<ID2D1Bitmap1> CreateRenderTargetBitmap(
             float width,
             float height,
             DirectXPixelFormat format,
-            CanvasAlphaBehavior alpha,
+            CanvasAlphaMode alpha,
             float dpi) override
         {
             if (!MockCreateRenderTargetBitmap)
@@ -169,7 +208,7 @@ namespace canvas
             CanvasColorSpace preInterpolationSpace,
             CanvasColorSpace postInterpolationSpace,
             CanvasBufferPrecision bufferPrecision,
-            CanvasAlphaBehavior alphaBehavior)
+            CanvasAlphaMode alphaMode) override
         {
             if (!MockCreateGradientStopCollection)
             {
@@ -184,11 +223,11 @@ namespace canvas
                 preInterpolationSpace,
                 postInterpolationSpace,
                 bufferPrecision,
-                alphaBehavior);
+                alphaMode);
         }
 
         virtual ComPtr<ID2D1LinearGradientBrush> CreateLinearGradientBrush(
-            ID2D1GradientStopCollection1* stopCollection)
+            ID2D1GradientStopCollection1* stopCollection) override
         {
             if (!MockCreateLinearGradientBrush)
             {
@@ -200,7 +239,7 @@ namespace canvas
         }
 
         virtual ComPtr<ID2D1RadialGradientBrush> CreateRadialGradientBrush(
-            ID2D1GradientStopCollection1* stopCollection)
+            ID2D1GradientStopCollection1* stopCollection) override
         {
             if (!MockCreateRadialGradientBrush)
             {
@@ -209,6 +248,21 @@ namespace canvas
             }
 
             return MockCreateRadialGradientBrush(stopCollection);
+        }
+
+        virtual ComPtr<IDXGISwapChain2> CreateSwapChain(
+            int32_t widthInPixels,
+            int32_t heightInPixels,
+            DirectXPixelFormat format,
+            int32_t bufferCount,
+            CanvasAlphaMode alphaMode) override
+        {
+            return CreateSwapChainMethod.WasCalled(widthInPixels, heightInPixels, format, bufferCount, alphaMode);
+        }
+
+        virtual ComPtr<ID2D1CommandList> CreateCommandList() override
+        {
+            return CreateCommandListMethod.WasCalled();
         }
     };
 }

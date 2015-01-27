@@ -13,6 +13,7 @@
 #include "pch.h"
 
 using namespace Microsoft::Graphics::Canvas;
+using namespace Windows::UI;
 
 TEST_CLASS(CanvasImageSourceTests)
 {
@@ -26,27 +27,22 @@ TEST_CLASS(CanvasImageSourceTests)
         RunOnUIThread(
             []
             {
+                Color anyColor{1,2,3,4};
+
                 // Verify creation off of a device.
                 auto canvasDevice = ref new CanvasDevice();
                     
                 auto canvasImageSource = ref new CanvasImageSource(
                     canvasDevice,
                     1,
-                    1);
+                    1,
+                    DEFAULT_DPI);
                     
-                auto drawingSession = canvasImageSource->CreateDrawingSession();
+                auto drawingSession = canvasImageSource->CreateDrawingSession(anyColor);
                 Assert::AreEqual(drawingSession->Device, canvasImageSource->Device);
                 delete drawingSession;
 
                 delete canvasImageSource;
-
-                // Verify creation off of a canvas control.
-                CanvasControl^ canvasControl = ref new CanvasControl();
-
-                canvasImageSource = ref new CanvasImageSource(
-                    canvasControl,
-                    1,
-                    1);
             });
     }
 };

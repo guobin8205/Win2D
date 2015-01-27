@@ -15,14 +15,16 @@
 #include "CanvasControl.h"
 #include "CanvasDevice.h"
 #include "CanvasImageSource.h"
+#include "RecreatableDeviceManager.impl.h"
 
 namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 {
     using namespace ::Microsoft::WRL::Wrappers;
-    using namespace ABI::Windows::UI::Xaml;
-    using namespace ABI::Windows::UI::Xaml::Media;
-    using namespace ABI::Windows::Graphics::Display;
+    using namespace ABI::Windows::ApplicationModel::Core;
     using namespace ABI::Windows::ApplicationModel;
+    using namespace ABI::Windows::Graphics::Display;
+    using namespace ABI::Windows::UI::Xaml::Media;
+    using namespace ABI::Windows::UI::Xaml;
 
     IFACEMETHODIMP CanvasDrawEventArgsFactory::Create(
         ICanvasDrawingSession* drawingSession,
@@ -64,11 +66,20 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         ComPtr<ICanvasImageSourceFactory> m_canvasImageSourceFactory;
         ComPtr<IActivationFactory> m_imageControlFactory;
         ComPtr<IDisplayInformationStatics> m_displayInformationStatics;
-        ComPtr<IDesignModeStatics> m_designModeStatics;
+        ComPtr<IWindowStatics> m_windowStatics;
+        ComPtr<ICoreApplication> m_coreApplication;
+
+        bool m_isDesignModeEnabled;
 
     public:
         CanvasControlAdapter()
+            : m_isDesignModeEnabled(QueryIsDesignModeEnabled())
         {
+            ComPtr<IDesignModeStatics> designModeStatics;
+            ThrowIfFailed(GetActivationFactory(
+                HStringReference(RuntimeClass_Windows_ApplicationModel_DesignMode).Get(),
+                &designModeStatics));
+
             auto& module = Module<InProc>::GetModule();
 
             ThrowIfFailed(GetActivationFactory(
@@ -99,8 +110,12 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
                 &m_displayInformationStatics));
 
             ThrowIfFailed(GetActivationFactory(
-                HStringReference(RuntimeClass_Windows_ApplicationModel_DesignMode).Get(),
-                &m_designModeStatics));
+                HStringReference(RuntimeClass_Windows_UI_Xaml_Window).Get(),
+                &m_windowStatics));
+
+            ThrowIfFailed(GetActivationFactory(
+                HStringReference(RuntimeClass_Windows_ApplicationModel_Core_CoreApplication).Get(),
+                &m_coreApplication));
         }
 
         virtual std::pair<ComPtr<IInspectable>, ComPtr<IUserControl>> CreateUserControl(IInspectable* canvasControl) override 
@@ -116,42 +131,71 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             return std::make_pair(userControlInspectable, userControl);
         }
 
-        virtual ComPtr<ICanvasDevice> CreateCanvasDevice() override 
+        virtual std::unique_ptr<ICanvasControlRecreatableDeviceManager> CreateRecreatableDeviceManager() override
         {
-            ComPtr<IInspectable> inspectableDevice;
-            ThrowIfFailed(m_canvasDeviceFactory->ActivateInstance(&inspectableDevice));
-
-            ComPtr<ICanvasDevice> device;
-            ThrowIfFailed(inspectableDevice.As(&device));
-
-            return device;
+            return std::make_unique<RecreatableDeviceManager<CanvasControlRecreatableDeviceManagerTraits>>(m_canvasDeviceFactory.Get());
         }
 
-        virtual EventRegistrationToken AddCompositionRenderingCallback(IEventHandler<IInspectable*>* handler) override 
+        virtual RegisteredEvent AddApplicationSuspendingCallback(IEventHandler<SuspendingEventArgs*>* handler) override
         {
-            EventRegistrationToken token;
-            ThrowIfFailed(m_compositionTargetStatics->add_Rendering(handler, &token));
-            return token;
+            return RegisteredEvent(
+                m_coreApplication.Get(),
+                &ICoreApplication::add_Suspending,
+                &ICoreApplication::remove_Suspending,
+                handler);
         }
 
-        virtual void RemoveCompositionRenderingCallback(EventRegistrationToken token) override 
+        virtual RegisteredEvent AddCompositionRenderingCallback(IEventHandler<IInspectable*>* handler) override 
         {
-            ThrowIfFailed(m_compositionTargetStatics->remove_Rendering(token));
+            return RegisteredEvent(
+                m_compositionTargetStatics.Get(),
+                &ICompositionTargetStatics::add_Rendering,
+                &ICompositionTargetStatics::remove_Rendering,
+                handler);
         }
 
-        virtual ComPtr<ICanvasImageSource> CreateCanvasImageSource(ICanvasDevice* device, int width, int height) override 
+        virtual RegisteredEvent AddSurfaceContentsLostCallback(IEventHandler<IInspectable*>* handler) override
+        {
+            return RegisteredEvent(
+                m_compositionTargetStatics.Get(),
+                &ICompositionTargetStatics::add_SurfaceContentsLost,
+                &ICompositionTargetStatics::remove_SurfaceContentsLost,
+                handler);
+        }
+
+        virtual RegisteredEvent AddVisibilityChangedCallback(IWindowVisibilityChangedEventHandler* handler, IWindow* window) override
+        {
+            // Don't register for the visiblity changed event if we're in design
+            // mode.  Although we have been given a value IWindow, we'll crash
+            // if we attempt to call add_VisibilityChanged on it!
+            if (IsDesignModeEnabled())
+                return RegisteredEvent();
+
+            return RegisteredEvent(
+                window,
+                &IWindow::add_VisibilityChanged,
+                &IWindow::remove_VisibilityChanged,
+                handler);
+        }
+
+        virtual ComPtr<CanvasImageSource> CreateCanvasImageSource(ICanvasDevice* device, float width, float height, float dpi, CanvasBackground backgroundMode) override 
         {
             ComPtr<ICanvasResourceCreator> resourceCreator;
             ThrowIfFailed(device->QueryInterface(resourceCreator.GetAddressOf()));
 
             ComPtr<ICanvasImageSource> imageSource;
-            ThrowIfFailed(m_canvasImageSourceFactory->Create(
+            ThrowIfFailed(m_canvasImageSourceFactory->CreateWithDpiAndBackground(
                 resourceCreator.Get(),
                 width, 
-                height, 
+                height,
+                dpi,
+                backgroundMode,
                 &imageSource));
 
-            return imageSource;
+            // Since we know that CanvasImageSourceFactory will only ever return
+            // CanvasImageSource instances, we can be certain that the
+            // ICanvasImageSource we get back is actually a CanvasImageSource.
+            return static_cast<CanvasImageSource*>(imageSource.Get());
         }
 
         virtual ComPtr<IImage> CreateImageControl() override 
@@ -167,6 +211,10 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
         float GetLogicalDpi() override
         {
+            // Don't try to look up display information if we're in design mode
+            if (IsDesignModeEnabled())
+                return DEFAULT_DPI;
+
             ComPtr<IDisplayInformation> displayInformation;
             ThrowIfFailed(m_displayInformationStatics->GetForCurrentView(&displayInformation));
 
@@ -175,20 +223,44 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             return logicalDpi;
         }
 
-        virtual EventRegistrationToken AddDpiChangedCallback(ITypedEventHandler<DisplayInformation*, IInspectable*>* handler) override
+        virtual RegisteredEvent AddDpiChangedCallback(DpiChangedEventHandler* handler) override
         {
+            // Don't register for the DPI changed event if we're in design mode
+            if (IsDesignModeEnabled())
+                return RegisteredEvent();
+
             ComPtr<IDisplayInformation> displayInformation;
             ThrowIfFailed(m_displayInformationStatics->GetForCurrentView(&displayInformation));
 
-            EventRegistrationToken token;
-            ThrowIfFailed(displayInformation->add_DpiChanged(handler, &token));
-            return token;
+            return RegisteredEvent(
+                displayInformation.Get(), 
+                &IDisplayInformation::add_DpiChanged, 
+                &IDisplayInformation::remove_DpiChanged,
+                handler);
         }
 
-        bool IsDesignModeEnabled() override
+        virtual ComPtr<IWindow> GetCurrentWindow() override
         {
+            ComPtr<IWindow> currentWindow;
+            ThrowIfFailed(m_windowStatics->get_Current(&currentWindow));
+            return currentWindow;
+        }
+
+    private:
+        bool IsDesignModeEnabled() const
+        {
+            return m_isDesignModeEnabled;
+        }
+
+        static bool QueryIsDesignModeEnabled()
+        {
+            ComPtr<IDesignModeStatics> designModeStatics;
+            ThrowIfFailed(GetActivationFactory(
+                HStringReference(RuntimeClass_Windows_ApplicationModel_DesignMode).Get(),
+                &designModeStatics));
+
             boolean enabled;
-            ThrowIfFailed(m_designModeStatics->get_DesignModeEnabled(&enabled));
+            ThrowIfFailed(designModeStatics->get_DesignModeEnabled(&enabled));
             return !!enabled;
         }
     };
@@ -219,14 +291,125 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         }
     };
 
+    CanvasControl::GuardedState::GuardedState()
+        : m_clearColor{}
+        , m_imageSourceNeedsReset{}
+        , m_needToHookCompositionRendering{}
+    {
+    }
+
+
+    void CanvasControl::GuardedState::TriggerRender(CanvasControl* control, InvalidateReason reason)
+    {
+        if (!control->m_isLoaded)
+            return;
+
+        std::unique_lock<std::mutex> lock(m_lock);
+        TriggerRenderImpl(control, reason);
+    }
+
+
+    void CanvasControl::GuardedState::SetClearColor(CanvasControl* control, Color const& value)
+    {
+        std::unique_lock<std::mutex> lock(m_lock);
+
+        if (m_clearColor.A == value.A &&
+            m_clearColor.R == value.R && 
+            m_clearColor.G == value.G &&
+            m_clearColor.B == value.B)
+        {
+            return;
+        }
+        
+        bool wasOpaque = (m_clearColor.A == 255);
+        bool isOpaque = (value.A == 255);
+        
+        auto invalidateReason = InvalidateReason::Default;
+        if (wasOpaque != isOpaque)
+            invalidateReason = InvalidateReason::ImageSourceNeedsReset;
+        
+        m_clearColor = value;
+        TriggerRenderImpl(control, invalidateReason);
+    }
+
+
+    void CanvasControl::GuardedState::OnWindowVisibilityChanged(CanvasControl* control, bool isVisible)
+    {
+        std::unique_lock<std::mutex> lock(m_lock);
+
+        if (isVisible)
+        {
+            HookCompositionRenderingIfNecessary(control);
+        }
+        else
+        {                    
+            if (m_renderingEventRegistration)
+            {
+                //
+                // The window is invisible.  This means that
+                // OnCompositionRendering() will not do anything.  However, XAML
+                // will run composition if any handlers are registered on the
+                // rendering event.  Since we want to avoid the system doing
+                // unnecessary work we take steps to unhook the event when we're
+                // not making good use of it.
+                //
+                m_renderingEventRegistration.Release();
+                m_needToHookCompositionRendering = true;
+            }
+        }
+    }
+
+
+    Color CanvasControl::GuardedState::GetClearColor()
+    {
+        std::unique_lock<std::mutex> lock(m_lock);
+        return m_clearColor;
+    }
+
+
+    void CanvasControl::GuardedState::TriggerRenderImpl(CanvasControl* control, InvalidateReason reason)
+    {
+        if (reason == InvalidateReason::ImageSourceNeedsReset)
+            m_imageSourceNeedsReset = true;
+
+        if (m_renderingEventRegistration)
+            return;
+
+        m_needToHookCompositionRendering = true;
+
+        if (!control->IsWindowVisible())
+            return;
+
+        HookCompositionRenderingIfNecessary(control);
+    }
+
+
+    void CanvasControl::GuardedState::HookCompositionRenderingIfNecessary(CanvasControl* control)
+    {
+        if (m_renderingEventRegistration)
+            return;
+        
+        if (!m_needToHookCompositionRendering)
+            return;
+        
+        m_renderingEventRegistration = control->m_adapter->AddCompositionRenderingCallback(
+            control, 
+            &CanvasControl::OnCompositionRendering);
+        
+        m_needToHookCompositionRendering = false; 
+    }
+    
 
     CanvasControl::CanvasControl(std::shared_ptr<ICanvasControlAdapter> adapter)
         : m_adapter(adapter)
-        , m_canvasDevice(m_adapter->CreateCanvasDevice())
-        , m_drawNeeded(false)
+        , m_window(m_adapter->GetCurrentWindow())
+        , m_recreatableDeviceManager(m_adapter->CreateRecreatableDeviceManager())
+        , m_imageSourceDpi(0)
+        , m_imageSourceWidth(0)
+        , m_imageSourceHeight(0)
         , m_isLoaded(false)
-        , m_currentWidth(0)
-        , m_currentHeight(0)
+        , m_dpi(m_adapter->GetLogicalDpi())
+        , m_guardedState(std::make_unique<GuardedState>())
     {
         CreateBaseClass();
         CreateImageControl();
@@ -252,7 +435,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         // The logic in EnsureSizeDependentResources ensures that the Source
         // assigned to the Image control matches the CanvasImageSource extents.
         //
-        ThrowIfFailed(m_imageControl->put_Stretch(ABI::Windows::UI::Xaml::Media::Stretch_Fill));
+        ThrowIfFailed(m_imageControl->put_Stretch(Stretch_Fill));
 
         //
         // Set the image control as the content of this control.
@@ -270,229 +453,140 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         using namespace ABI::Windows::UI::Xaml::Controls;
         using namespace Windows::Foundation;
 
-        ComPtr<IFrameworkElement> thisAsFrameworkElement;
-        ThrowIfFailed(GetComposableBase().As(&thisAsFrameworkElement));
+        auto thisAsFrameworkElement = As<IFrameworkElement>(GetComposableBase());
 
-        // Register for Loaded event
-        auto onLoadedFn = Callback<IRoutedEventHandler>(this, &CanvasControl::OnLoaded);
-        EventRegistrationToken loadedToken{};
+        RegisterEventHandlerOnSelf(thisAsFrameworkElement, &IFrameworkElement::add_Loaded, &CanvasControl::OnLoaded);
+        RegisterEventHandlerOnSelf(thisAsFrameworkElement, &IFrameworkElement::add_SizeChanged, &CanvasControl::OnSizeChanged);
 
-        ThrowIfFailed(thisAsFrameworkElement->add_Loaded(
-            onLoadedFn.Get(),
-            &loadedToken));
+        m_applicationSuspendingEventRegistration = m_adapter->AddApplicationSuspendingCallback(this, &CanvasControl::OnApplicationSuspending);
+        m_dpiChangedEventRegistration = m_adapter->AddDpiChangedCallback(this, &CanvasControl::OnDpiChanged);
+        m_surfaceContentsLostEventRegistration = m_adapter->AddSurfaceContentsLostCallback(this, &CanvasControl::OnSurfaceContentsLost);
+        m_windowVisibilityChangedEventRegistration = m_adapter->AddVisibilityChangedCallback(this, &CanvasControl::OnWindowVisibilityChanged, m_window.Get());
 
-        // TODO #2189 Investigate a potential leak, with events that are registered but not unregistered.
-
-        //  Register for SizeChanged event
-        auto onSizeChangedFn = Callback<ISizeChangedEventHandler>(this, &CanvasControl::OnSizeChanged);
-        EventRegistrationToken sizeChangedToken{};
-
-        ThrowIfFailed(thisAsFrameworkElement->add_SizeChanged(
-            onSizeChangedFn.Get(),
-            &sizeChangedToken));
-
-        // Register for DpiChanged event.
-        if (!m_adapter->IsDesignModeEnabled())
-        {
-            auto dpiChangedEventHandler = Callback<ITypedEventHandler<DisplayInformation*, IInspectable*>, CanvasControl>(this, &CanvasControl::OnDpiChangedCallback);
-            EventRegistrationToken dpiChangedToken{};
-            dpiChangedToken = m_adapter->AddDpiChangedCallback(dpiChangedEventHandler.Get());
-        }
+        m_recreatableDeviceManager->SetChangedCallback(
+            [=]
+            {
+                m_guardedState->TriggerRender(this);
+            });
     }
 
-    void CanvasControl::ClearDrawNeeded()
+    template<typename T, typename DELEGATE, typename HANDLER>
+    void CanvasControl::RegisterEventHandlerOnSelf(
+        ComPtr<T> const& self,
+        HRESULT (STDMETHODCALLTYPE T::* addMethod)(DELEGATE*, EventRegistrationToken*), 
+        HANDLER handler)
     {
-        //
-        // Note that this lock is scoped to release before the m_drawEventList.FireAll().
-        // This is necessary, since handlers themselves may call Invalidate().
-        //
-        std::unique_lock<std::mutex> lock(m_drawLock);
-        m_drawNeeded = false;
+        // 'self' here is assumed to be something that was obtained by QI'ing
+        // ourselves (or our component base).  In this case we don't need to
+        // unregister the event on destruction since once we're destroyed these
+        // events won't get fired.
+        EventRegistrationToken tokenThatIsThrownAway{};
 
-        // TODO #1953 Consider clearing m_renderingEventToken, or coalescing m_renderingEventToken
-        // and m_drawNeeded into one variable.
-        m_adapter->RemoveCompositionRenderingCallback(m_renderingEventToken);
+        auto callback = Callback<DELEGATE>(this, handler);
+        CheckMakeResult(callback);
+
+        ThrowIfFailed((self.Get()->*addMethod)(callback.Get(), &tokenThatIsThrownAway));
     }
 
-    void CanvasControl::EnsureSizeDependentResources()
+    CanvasControl::~CanvasControl()
     {
-        // CanvasControl should always have a device
-        assert(m_canvasDevice);
-
-        // It is illegal to call get_actualWidth/Height before Loaded.
-        assert(m_isLoaded);
-
-        ComPtr<IFrameworkElement> thisAsFrameworkElement;
-        ThrowIfFailed(GetComposableBase().As(&thisAsFrameworkElement));
-
-        double actualWidth, actualHeight;
-        ThrowIfFailed(thisAsFrameworkElement->get_ActualWidth(&actualWidth));
-        ThrowIfFailed(thisAsFrameworkElement->get_ActualHeight(&actualHeight));
-
-        assert(actualWidth <= static_cast<double>(INT_MAX));
-        assert(actualHeight <= static_cast<double>(INT_MAX));
-        
-        const float logicalDpi = m_adapter->GetLogicalDpi();
-        const double dpiScalingFactor = logicalDpi / DEFAULT_DPI;
-
-        const double deviceDependentWidth = actualWidth * dpiScalingFactor;
-        const double deviceDependentHeight = actualHeight * dpiScalingFactor;
-
-        assert(deviceDependentWidth <= static_cast<double>(INT_MAX));
-        assert(deviceDependentWidth >= 0.0);
-        assert(deviceDependentHeight <= static_cast<double>(INT_MAX));
-        assert(deviceDependentHeight >= 0.0);
-
-        auto width = static_cast<int>(ceil(deviceDependentWidth));
-        auto height = static_cast<int>(ceil(deviceDependentHeight));
-
-        if (m_canvasImageSource)
-        {
-            // If we already have an image source that's the right size we don't
-            // need to do anything.
-            if (width == m_currentWidth && height == m_currentHeight)
-                return;
-        }
-
-        if (width <= 0 || height <= 0)
-        {
-            // Zero-sized controls don't have image sources
-            m_canvasImageSource.Reset();
-            m_currentWidth = 0;
-            m_currentHeight = 0;
-            ThrowIfFailed(m_imageControl->put_Source(nullptr));
-        }
-        else
-        {
-            m_canvasImageSource = m_adapter->CreateCanvasImageSource(
-                m_canvasDevice.Get(),
-                width,
-                height);
-            
-            m_currentWidth = width;
-            m_currentHeight = height;
-            
-            //
-            // Set this new image source on the image control
-            //
-            ComPtr<IImageSource> baseImageSource;
-            ThrowIfFailed(m_canvasImageSource.As(&baseImageSource));
-            ThrowIfFailed(m_imageControl->put_Source(baseImageSource.Get()));
-        }
     }
 
-    void CanvasControl::CallDrawHandlers()
+    HRESULT CanvasControl::OnApplicationSuspending(IInspectable*, ISuspendingEventArgs*)
     {
-        if (m_drawEventList.GetSize() == 0)
-        {
-            return;
-        }
+        return ExceptionBoundary(
+            [&]
+            {
+                auto& device = m_recreatableDeviceManager->GetDevice();
+                if (!device)
+                    return;
 
-        if (!m_canvasImageSource)
-        {
-            return;
-        }
-
-        ComPtr<ICanvasDrawingSession> drawingSession;
-        ComPtr<CanvasImageSource> imageSourceImplementation = 
-            static_cast<CanvasImageSource*>(m_canvasImageSource.Get());
-
-        ThrowIfFailed(imageSourceImplementation->CreateDrawingSessionWithDpi(m_adapter->GetLogicalDpi(), &drawingSession));
-        ComPtr<CanvasDrawEventArgs> drawEventArgs = Make<CanvasDrawEventArgs>(drawingSession.Get());
-        CheckMakeResult(drawEventArgs);
-
-        ThrowIfFailed(m_drawEventList.InvokeAll(this, drawEventArgs.Get()));
-
-        ComPtr<IClosable> drawingSessionClosable;
-        ThrowIfFailed(drawingSession.As(&drawingSessionClosable));
-        ThrowIfFailed(drawingSessionClosable->Close()); // Device removal should be handled here.
+                auto direct3DDevice = As<IDirect3DDevice>(device);
+                ThrowIfFailed(direct3DDevice->Trim());
+            });
     }
 
-    HRESULT CanvasControl::OnLoaded(IInspectable* sender, IRoutedEventArgs* args)
+    HRESULT CanvasControl::OnLoaded(IInspectable*, IRoutedEventArgs*)
     {
         return ExceptionBoundary(
             [&]
             {
                 m_isLoaded = true;
-
-                // The scheme for the CreateResources event is:
-                // - On Loaded, all handlers are fired.
-                // - If any handler is added thereafter, it is fired as soon as it is added.
-                //
-                // And so, there isn't a need to keep track of which handlers have been fired and which have not.
-                //
-
-                ThrowIfFailed(m_createResourcesEventList.InvokeAll(this, static_cast<IInspectable*>(nullptr)));
-
-                InvalidateImpl();
+                m_guardedState->TriggerRender(this);
             });
     }
 
-    HRESULT CanvasControl::OnSizeChanged(IInspectable* sender, ISizeChangedEventArgs* args)
+    HRESULT CanvasControl::OnSizeChanged(IInspectable*, ISizeChangedEventArgs* args)
     {
         return ExceptionBoundary(
             [&]
             {
-                //
-                // If we get a size changed before we've loaded then we don't do
-                // anything.
-                //
-                if (!m_isLoaded)
-                    return;
-
                 //
                 // OnSizeChanged can get called multiple times.  We only want to
                 // invalidate if it represents a size change from what the
                 // control was last set to.
                 //
-                ABI::Windows::Foundation::Size newSize{};                
+                Size newSize{};                
                 ThrowIfFailed(args->get_NewSize(&newSize));
 
-                auto newWidth = static_cast<int>(newSize.Width);
-                auto newHeight = static_cast<int>(newSize.Height);
+                auto newWidth = static_cast<float>(newSize.Width);
+                auto newHeight = static_cast<float >(newSize.Height);
 
-                if (newWidth == m_currentWidth && newHeight == m_currentHeight)
+                if (newWidth == m_imageSourceWidth && newHeight == m_imageSourceHeight)
                     return;
 
-                InvalidateImpl();
+                m_guardedState->TriggerRender(this);
             });
     }
 
     IFACEMETHODIMP CanvasControl::add_CreateResources(
-        ABI::Windows::Foundation::ITypedEventHandler<ABI::Microsoft::Graphics::Canvas::CanvasControl*, IInspectable*>* value,
+        CreateResourcesEventHandler* value,
         EventRegistrationToken *token)
     {
         return ExceptionBoundary(
             [&]
             {
-                ThrowIfFailed(m_createResourcesEventList.Add(value, token));
+                // TODO #1922 Ensure that this operation is threadsafe.  (Check
+                // m_window's CoreDispatcher::HasThreadAccess)
 
-                if (m_isLoaded)
-                {
-                    // TODO #1922 Ensure that this operation is threadsafe.
-                    ThrowIfFailed(value->Invoke(this, nullptr));
-                }
+                CheckInPointer(token);
+
+                *token = m_recreatableDeviceManager->AddCreateResources(this, value);
             });
     }
-
+    
     IFACEMETHODIMP CanvasControl::remove_CreateResources(
         EventRegistrationToken token)
     {
         return ExceptionBoundary(
             [&]
             {
-                ThrowIfFailed(m_createResourcesEventList.Remove(token));
+                m_recreatableDeviceManager->RemoveCreateResources(token);
+            });
+    }
+
+    IFACEMETHODIMP CanvasControl::get_ReadyToDraw(
+        boolean* value)
+    {
+        // TODO #1922 Ensure that this operation is threadsafe.  (Check
+        // m_window's CoreDispatcher::HasThreadAccess)
+
+        return ExceptionBoundary(
+            [=]
+            {
+                *value = m_recreatableDeviceManager->IsReadyToDraw();
             });
     }
 
     IFACEMETHODIMP CanvasControl::add_Draw(
-        ABI::Windows::Foundation::ITypedEventHandler<ABI::Microsoft::Graphics::Canvas::CanvasControl*, ABI::Microsoft::Graphics::Canvas::CanvasDrawEventArgs*>* value,
+        DrawEventHandler* value,
         EventRegistrationToken* token)
     {
         return ExceptionBoundary(
             [&]
             {
                 ThrowIfFailed(m_drawEventList.Add(value, token));
+                m_guardedState->TriggerRender(this);
             });
     }
 
@@ -506,78 +600,206 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             });
     }
 
-    HRESULT CanvasControl::OnRenderCallback(IInspectable *pSender, IInspectable *pArgs)
+    IFACEMETHODIMP CanvasControl::put_ClearColor(Color value)
     {
         return ExceptionBoundary(
             [&]
             {
-                ClearDrawNeeded();
-
-                EnsureSizeDependentResources();
-
-                CallDrawHandlers();
+                m_guardedState->SetClearColor(this, value);
             });
     }
+
+    IFACEMETHODIMP CanvasControl::get_ClearColor(Color* value)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                CheckInPointer(value);
+                *value = m_guardedState->GetClearColor();
+            });
+    }
+
+    HRESULT CanvasControl::OnCompositionRendering(IInspectable*, IInspectable*)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                if (!IsWindowVisible())
+                    return;
+
+                m_recreatableDeviceManager->RunWithDevice(this,
+                    [=](ICanvasDevice* device, RunWithDeviceFlags flags)
+                    {
+                        if ((flags & RunWithDeviceFlags::NewlyCreatedDevice) == RunWithDeviceFlags::NewlyCreatedDevice)
+                            m_canvasImageSource.Reset();
+
+                        auto clearColor = m_guardedState->PreDrawAndGetClearColor(this);
+                        auto backgroundMode = clearColor.A == 255 ? CanvasBackground::Opaque : CanvasBackground::Transparent;
+                        
+                        EnsureSizeDependentResources(device, backgroundMode);
+                        CallDrawHandlers(clearColor, (flags & RunWithDeviceFlags::ResourcesNotCreated) != RunWithDeviceFlags::ResourcesNotCreated);
+                    });
+            });
+    }
+
+    Color CanvasControl::GuardedState::PreDrawAndGetClearColor(CanvasControl* control)
+    {
+        std::unique_lock<std::mutex> lock(m_lock);
+
+        if (m_imageSourceNeedsReset)
+        {
+            control->m_canvasImageSource.Reset();
+            m_imageSourceNeedsReset = false;
+        }
+
+        m_renderingEventRegistration.Release();
+
+        return m_clearColor;
+    }
+
+    void CanvasControl::EnsureSizeDependentResources(ICanvasDevice* device, CanvasBackground backgroundMode)
+    {
+        // It is illegal to call get_actualWidth/Height before Loaded.
+        assert(m_isLoaded);
+
+        ComPtr<IFrameworkElement> thisAsFrameworkElement;
+        ThrowIfFailed(GetComposableBase().As(&thisAsFrameworkElement));
+
+        double actualWidth, actualHeight;
+        ThrowIfFailed(thisAsFrameworkElement->get_ActualWidth(&actualWidth));
+        ThrowIfFailed(thisAsFrameworkElement->get_ActualHeight(&actualHeight));
+
+        float width = (float)actualWidth;
+        float height = (float)actualHeight;
+
+        if (m_canvasImageSource)
+        {
+            // If we already have an image source that's the right size we don't
+            // need to do anything.
+            if (width == m_imageSourceWidth && height == m_imageSourceHeight && m_dpi == m_imageSourceDpi)
+                return;
+        }
+
+        if (width <= 0 || height <= 0)
+        {
+            // Zero-sized controls don't have image sources
+            m_canvasImageSource.Reset();
+            m_imageSourceWidth = 0;
+            m_imageSourceHeight = 0;
+            m_imageSourceDpi = 0;
+            ThrowIfFailed(m_imageControl->put_Source(nullptr));
+        }
+        else
+        {
+            assert(device);
+            m_canvasImageSource = m_adapter->CreateCanvasImageSource(
+                device,
+                width,
+                height,
+                m_dpi,
+                backgroundMode);
+            
+            m_imageSourceWidth = width;
+            m_imageSourceHeight = height;
+            m_imageSourceDpi = m_dpi;
+
+            //
+            // Set this new image source on the image control
+            //
+            auto baseImageSource = As<IImageSource>(m_canvasImageSource);
+            ThrowIfFailed(m_imageControl->put_Source(baseImageSource.Get()));
+        }
+    }
+
+    void CanvasControl::CallDrawHandlers(Color const& clearColor, bool resourcesHaveBeenCreated)
+    {
+        if (!m_canvasImageSource)
+            return;
+
+        ComPtr<ICanvasDrawingSession> drawingSession;
+        ThrowIfFailed(m_canvasImageSource->CreateDrawingSession(clearColor, &drawingSession));
+
+        ComPtr<CanvasDrawEventArgs> drawEventArgs = Make<CanvasDrawEventArgs>(drawingSession.Get());
+        CheckMakeResult(drawEventArgs);
+
+        if (resourcesHaveBeenCreated)
+            ThrowIfFailed(m_drawEventList.InvokeAll(this, drawEventArgs.Get()));
+
+        ComPtr<IClosable> drawingSessionClosable;
+        ThrowIfFailed(drawingSession.As(&drawingSessionClosable));
+        ThrowIfFailed(drawingSessionClosable->Close());
+    }
+
+    bool CanvasControl::IsWindowVisible()
+    {
+        boolean visible;
+
+        HRESULT hr = m_window->get_Visible(&visible);
+
+        if (hr == E_FAIL)
+        {
+            // In design mode get_Visible will return E_FAIL.  In this case we
+            // just treat the window as visible.
+            return true;
+        }
+        else
+        {
+            ThrowIfFailed(hr);
+            return !!visible;
+        }
+    }
+
 
     IFACEMETHODIMP CanvasControl::Invalidate()
     {
         return ExceptionBoundary(
             [&]
             {
-                InvalidateImpl();
+                m_guardedState->TriggerRender(this);
             });
     }
 
 
-    void CanvasControl::InvalidateImpl()
-    {
-        std::lock_guard<std::mutex> lock(m_drawLock);
-
-        if (m_drawNeeded)
-            return;
-
-        m_drawNeeded = true;
-        ComPtr<IEventHandler<IInspectable*>> renderingEventHandler = Callback<IEventHandler<IInspectable*>, CanvasControl>(this, &CanvasControl::OnRenderCallback);
-        m_renderingEventToken = m_adapter->AddCompositionRenderingCallback(renderingEventHandler.Get());
-    }
-
     IFACEMETHODIMP CanvasControl::MeasureOverride(
-        ABI::Windows::Foundation::Size availableSize, 
-        ABI::Windows::Foundation::Size* returnValue)
+        Size availableSize, 
+        Size* returnValue)
     {
+        UNREFERENCED_PARAMETER(availableSize);
+
         return ExceptionBoundary(
             [&]
             {
-                //
-                // MeasureOverride must call Measure on its children (in this
-                // case this is just the image control).
-                //
-                ComPtr<IUIElement> imageOverrides;
-                ThrowIfFailed(m_imageControl.As(&imageOverrides));
-                ThrowIfFailed(imageOverrides->Measure(availableSize));
+                Size zeroSize{ 0, 0 };
 
                 //
-                // However, we ignore how they respond and reply that we're
-                // happy to be sized however the layout engine wants to size us.
+                // Call Measure on our children (in this case just the image control).
                 //
-                *returnValue = ABI::Windows::Foundation::Size{};
+                ThrowIfFailed(As<IUIElement>(m_imageControl)->Measure(zeroSize));
+            
+                //
+                // Reply that we're happy to be sized however the layout engine wants to size us.
+                //
+                *returnValue = zeroSize;
             });
     }
     
     IFACEMETHODIMP CanvasControl::ArrangeOverride(
-        ABI::Windows::Foundation::Size finalSize, 
-        ABI::Windows::Foundation::Size* returnValue)
+        Size finalSize, 
+        Size* returnValue)
     {
         return ExceptionBoundary(
             [&]
             {
                 //
-                // Allow base class to handle this
+                // Call Arrange on our children (in this case just the image control).
                 //
-                ComPtr<IFrameworkElementOverrides> base;
-                ThrowIfFailed(GetComposableBase().As(&base));
-                ThrowIfFailed(base->ArrangeOverride(finalSize, returnValue));
-            });
+                ThrowIfFailed(As<IUIElement>(m_imageControl)->Arrange(Rect{ 0, 0, finalSize.Width, finalSize.Height }));
+
+                //
+                // Reply that we're happy to accept the size chosen by the layout engine.
+                //
+                *returnValue = finalSize;
+        });
     }
     
     IFACEMETHODIMP CanvasControl::OnApplyTemplate()
@@ -600,16 +822,80 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             [&]
             {
                 CheckAndClearOutPointer(value);
-                ThrowIfFailed(m_canvasDevice.CopyTo(value));
+
+                auto& device = m_recreatableDeviceManager->GetDevice();
+
+                if (device)
+                    ThrowIfFailed(device.CopyTo(value));
+                else
+                    ThrowHR(E_INVALIDARG, HStringReference(Strings::CanvasDeviceGetDeviceWhenNotCreated).Get());
             });
     }
     
-    HRESULT CanvasControl::OnDpiChangedCallback(IDisplayInformation* sender, IInspectable* args)
+    IFACEMETHODIMP CanvasControl::get_Dpi(float* dpi)
     {
         return ExceptionBoundary(
             [&]
             {
-                InvalidateImpl();
+                CheckInPointer(dpi);
+                *dpi = m_dpi;
+            });
+    }
+
+    IFACEMETHODIMP CanvasControl::ConvertPixelsToDips(int pixels, float* dips)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                CheckInPointer(dips);
+                *dips = PixelsToDips(pixels, m_dpi);
+            });
+    }
+
+    IFACEMETHODIMP CanvasControl::ConvertDipsToPixels(float dips, int* pixels)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                CheckInPointer(pixels);
+                *pixels = DipsToPixels(dips, m_dpi);
+            });
+    }
+
+    HRESULT CanvasControl::OnDpiChanged(IDisplayInformation*, IInspectable*)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                float newDpi = m_adapter->GetLogicalDpi();
+
+                if (newDpi != m_dpi)
+                {
+                    m_dpi = newDpi;
+
+                    m_recreatableDeviceManager->SetDpiChanged();
+                }
+            });
+    }
+
+    HRESULT CanvasControl::OnSurfaceContentsLost(IInspectable*, IInspectable*)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                m_guardedState->TriggerRender(this, InvalidateReason::ImageSourceNeedsReset);
+            });
+    }
+
+    HRESULT CanvasControl::OnWindowVisibilityChanged(IInspectable*, IVisibilityChangedEventArgs* args)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                boolean isVisible;
+                ThrowIfFailed(args->get_Visible(&isVisible));
+
+                m_guardedState->OnWindowVisibilityChanged(this, !!isVisible);
             });
     }
 

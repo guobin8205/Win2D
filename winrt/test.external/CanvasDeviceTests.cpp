@@ -46,13 +46,14 @@ TEST_CLASS(CanvasDeviceTests)
 
         IDirect3DDevice^ direct3DDevice = canvasDevice;
         canvasDevice = CanvasDevice::CreateFromDirect3D11Device(
-            CanvasDebugLevel::None,
-            direct3DDevice);
+            direct3DDevice,
+            CanvasDebugLevel::None);
         Assert::AreEqual(CanvasHardwareAcceleration::Unknown, canvasDevice->HardwareAcceleration);
 
         delete canvasDevice;
             
         ExpectObjectClosed([&]{ canvasDevice->HardwareAcceleration; });
+        ExpectObjectClosed([&]{ canvasDevice->MaximumBitmapSizeInPixels; });
         ExpectObjectClosed([&]{ GetDXGIDevice(canvasDevice); });
     }
 

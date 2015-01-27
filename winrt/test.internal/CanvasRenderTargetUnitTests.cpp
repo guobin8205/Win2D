@@ -20,64 +20,76 @@ using namespace ABI::Windows::Foundation;
 
 TEST_CLASS(CanvasRenderTargetTests)
 {
-    std::shared_ptr<CanvasRenderTargetManager> m_manager;
-    ComPtr<MockD2DDevice> m_d2dDevice;
-    ComPtr<StubCanvasDevice> m_canvasDevice;
-
-public:
-    TEST_METHOD_INITIALIZE(Reset)
+    struct Fixture
     {
-        m_manager = std::make_shared<CanvasRenderTargetManager>();
-        m_d2dDevice = Make<MockD2DDevice>();
-        m_canvasDevice = Make<StubCanvasDevice>(m_d2dDevice);
+        std::shared_ptr<TestBitmapResourceCreationAdapter> m_adapter;
+        std::shared_ptr<CanvasRenderTargetManager> m_manager;
+        ComPtr<MockD2DDevice> m_d2dDevice;
+        ComPtr<StubCanvasDevice> m_canvasDevice;
+        
+        Fixture(float expectedDpi = DEFAULT_DPI)
+        {
+            auto converter = Make<MockWICFormatConverter>();
+            auto adapter = std::make_shared<TestBitmapResourceCreationAdapter>(converter);
+            m_manager = std::make_shared<CanvasRenderTargetManager>(adapter);
+            m_d2dDevice = Make<MockD2DDevice>();
+            m_canvasDevice = Make<StubCanvasDevice>(m_d2dDevice);
 
-        // Make the D2D device return StubD2DDeviceContexts
-        m_d2dDevice->MockCreateDeviceContext = 
-            [&](D2D1_DEVICE_CONTEXT_OPTIONS, ID2D1DeviceContext1** value)
-            {
-                auto deviceContext = Make<StubD2DDeviceContext>(m_d2dDevice.Get());
-                ThrowIfFailed(deviceContext.CopyTo(value));
-            };
-    }
+            // Make the D2D device return StubD2DDeviceContexts
+            m_d2dDevice->MockCreateDeviceContext = 
+                [&, expectedDpi](D2D1_DEVICE_CONTEXT_OPTIONS, ID2D1DeviceContext1** value)
+                {
+                    auto deviceContext = Make<StubD2DDeviceContext>(m_d2dDevice.Get());
 
-    ComPtr<CanvasRenderTarget> CreateRenderTarget(
-        ComPtr<ID2D1Bitmap1> bitmap = nullptr,
-        Size size = Size{ 1, 1 })
+                    deviceContext->SetDpiMethod.SetExpectedCalls(1, [=](float dpiX, float dpiY)
+                    {
+                        Assert::AreEqual(expectedDpi, dpiX);
+                        Assert::AreEqual(expectedDpi, dpiY);
+                    });
+
+                    ThrowIfFailed(deviceContext.CopyTo(value));
+                };
+        }
+
+        ComPtr<CanvasRenderTarget> CreateRenderTarget(
+            ComPtr<ID2D1Bitmap1> bitmap = nullptr,
+            Size size = Size{ 1, 1 })
+        {
+            if (!bitmap)
+                bitmap = Make<StubD2DBitmap>(D2D1_BITMAP_OPTIONS_TARGET);
+
+            m_canvasDevice->MockCreateRenderTargetBitmap =
+                [&](float, float, DirectXPixelFormat, CanvasAlphaMode, float)
+                {
+                    Assert::IsNotNull(bitmap.Get());
+                    auto result = bitmap;
+                    bitmap.Reset();
+                    return result;
+                };
+
+            auto renderTarget = m_manager->Create(
+                m_canvasDevice.Get(), 
+                size.Width, 
+                size.Height, 
+                DirectXPixelFormat::B8G8R8A8UIntNormalized,
+                CanvasAlphaMode::Premultiplied,
+                DEFAULT_DPI);
+
+            m_canvasDevice->MockCreateRenderTargetBitmap = nullptr;
+
+            return renderTarget;
+        }
+
+        ComPtr<CanvasRenderTarget> CreateRenderTargetAsWrapper(ICanvasDevice* device, ComPtr<ID2D1Bitmap1> bitmap)
+        {
+            return m_manager->GetOrCreate(device, bitmap.Get());
+        }
+    };
+
+    TEST_METHOD_EX(CanvasRenderTarget_Implements_Expected_Interfaces)
     {
-        if (!bitmap)
-            bitmap = Make<StubD2DBitmap>(D2D1_BITMAP_OPTIONS_TARGET);
-
-
-        m_canvasDevice->MockCreateRenderTargetBitmap =
-            [&](float, float, DirectXPixelFormat, CanvasAlphaBehavior, float)
-            {
-                Assert::IsNotNull(bitmap.Get());
-                auto result = bitmap;
-                bitmap.Reset();
-                return result;
-            };
-
-        auto renderTarget = m_manager->Create(
-            m_canvasDevice.Get(), 
-            size.Width, 
-            size.Height, 
-            DirectXPixelFormat::B8G8R8A8UIntNormalized,
-            CanvasAlphaBehavior::Premultiplied,
-            DEFAULT_DPI);
-
-        m_canvasDevice->MockCreateRenderTargetBitmap = nullptr;
-
-        return renderTarget;
-    }
-
-    ComPtr<CanvasRenderTarget> CreateRenderTargetAsWrapper(ICanvasDevice* device, ComPtr<ID2D1Bitmap1> bitmap)
-    {
-        return m_manager->GetOrCreate(device, bitmap.Get());
-    }
-
-    TEST_METHOD(CanvasRenderTarget_Implements_Expected_Interfaces)
-    {
-        auto renderTarget = CreateRenderTarget();
+        Fixture f;
+        auto renderTarget = f.CreateRenderTarget();
 
         ASSERT_IMPLEMENTS_INTERFACE(renderTarget, ICanvasRenderTarget);
         ASSERT_IMPLEMENTS_INTERFACE(renderTarget, ICanvasBitmap);
@@ -86,9 +98,10 @@ public:
         ASSERT_IMPLEMENTS_INTERFACE(renderTarget, ICanvasImageInternal);
     }
 
-    TEST_METHOD(CanvasRenderTarget_InterfacesAreTransitive)
+    TEST_METHOD_EX(CanvasRenderTarget_InterfacesAreTransitive)
     {
-        auto renderTarget = CreateRenderTarget();
+        Fixture f;
+        auto renderTarget = f.CreateRenderTarget();
 
         ComPtr<ICanvasBitmap> bitmap;
         ThrowIfFailed(renderTarget.As(&bitmap));
@@ -97,9 +110,10 @@ public:
         Assert::AreEqual(S_OK, bitmap.As(&irenderTarget));
     }
 
-    TEST_METHOD(CanvasRenderTarget_Close)
+    TEST_METHOD_EX(CanvasRenderTarget_Close)
     {
-        auto renderTarget = CreateRenderTarget();
+        Fixture f;
+        auto renderTarget = f.CreateRenderTarget();
 
         ComPtr<IClosable> renderTargetClosable;
         ThrowIfFailed(renderTarget.As(&renderTargetClosable));
@@ -110,37 +124,51 @@ public:
         Assert::AreEqual(RO_E_CLOSED, renderTarget->CreateDrawingSession(&drawingSession));
     }
 
-
-    TEST_METHOD(CanvasRenderTarget_DrawingSession)
+    TEST_METHOD_EX(CanvasRenderTarget_DrawingSession)
     {        
+        Fixture f;
         auto d2dBitmap = Make<StubD2DBitmap>(D2D1_BITMAP_OPTIONS_TARGET);    
-        auto renderTarget = CreateRenderTarget(d2dBitmap);
+        auto renderTarget = f.CreateRenderTarget(d2dBitmap);
 
         ComPtr<ICanvasDrawingSession> drawingSession;
         ThrowIfFailed(renderTarget->CreateDrawingSession(&drawingSession));
 
-        ValidateDrawingSession(drawingSession.Get(), m_d2dDevice.Get(), d2dBitmap.Get());
+        ValidateDrawingSession(drawingSession.Get(), f.m_d2dDevice.Get(), d2dBitmap.Get());
     }
 
-    TEST_METHOD(CanvasRenderTarget_Wrapped_CreatesDrawingSession)
+    TEST_METHOD_EX(CanvasRenderTarget_PropagatesDpiToDrawingSession)
     {
+        const float expectedDpi = 123;
+        
+        Fixture f(expectedDpi);
+        auto d2dBitmap = Make<StubD2DBitmap>(D2D1_BITMAP_OPTIONS_TARGET, expectedDpi);
+        auto renderTarget = f.CreateRenderTarget(d2dBitmap);
+
+        ComPtr<ICanvasDrawingSession> drawingSession;
+        ThrowIfFailed(renderTarget->CreateDrawingSession(&drawingSession));
+    }
+
+    TEST_METHOD_EX(CanvasRenderTarget_Wrapped_CreatesDrawingSession)
+    {
+        Fixture f;
         auto d2dBitmap = Make<StubD2DBitmap>(D2D1_BITMAP_OPTIONS_TARGET);
-        auto renderTarget = CreateRenderTargetAsWrapper(m_canvasDevice.Get(), d2dBitmap);
+        auto renderTarget = f.CreateRenderTargetAsWrapper(f.m_canvasDevice.Get(), d2dBitmap);
 
         ComPtr<ICanvasDrawingSession> drawingSession;
         ThrowIfFailed(renderTarget->CreateDrawingSession(&drawingSession));
 
-        ValidateDrawingSession(drawingSession.Get(), m_d2dDevice.Get(), d2dBitmap.Get());
+        ValidateDrawingSession(drawingSession.Get(), f.m_d2dDevice.Get(), d2dBitmap.Get());
     }
 
-    TEST_METHOD(CanvasRenderTarget_Wrapped_WrongDevice_Fails)
+    TEST_METHOD_EX(CanvasRenderTarget_Wrapped_WrongDevice_Fails)
     {
+        Fixture f;
         auto d2dBitmap = Make<StubD2DBitmap>(D2D1_BITMAP_OPTIONS_TARGET);
-        auto renderTarget = CreateRenderTarget(d2dBitmap);
+        auto renderTarget = f.CreateRenderTarget(d2dBitmap);
 
         auto otherCanvasDevice = Make<StubCanvasDevice>();
 
-        ExpectHResultException(E_INVALIDARG, [&]{ CreateRenderTargetAsWrapper(otherCanvasDevice.Get(), d2dBitmap.Get()); });
+        ExpectHResultException(E_INVALIDARG, [&]{ f.CreateRenderTargetAsWrapper(otherCanvasDevice.Get(), d2dBitmap.Get()); });
     }
 
     //
@@ -155,14 +183,7 @@ public:
         //
         // Pull the ID2D1DeviceContext1 out of the drawing session
         //
-        ComPtr<ICanvasResourceWrapperNative> drawingSessionResourceWrapper;
-        ThrowIfFailed(drawingSession->QueryInterface(drawingSessionResourceWrapper.GetAddressOf()));
-
-        ComPtr<IUnknown> deviceContextAsUnknown;
-        ThrowIfFailed(drawingSessionResourceWrapper->GetResource(&deviceContextAsUnknown));
-
-        ComPtr<ID2D1DeviceContext1> deviceContext;
-        ThrowIfFailed(deviceContextAsUnknown.As(&deviceContext));
+        auto deviceContext = GetWrappedResource<ID2D1DeviceContext1>(drawingSession);
 
         //
         // Check the device
@@ -182,32 +203,28 @@ public:
     }
 
 
-    TEST_METHOD(CanvasRenderTarget_InheritanceFromBitmap)
+    TEST_METHOD_EX(CanvasRenderTarget_InheritanceFromBitmap)
     {
+        Fixture f;
+
         // This exercises some of the Bitmap methods on CanvasRenderTarget.
 
         Size expectedSize = { 33, 44 };
 
         auto d2dBitmap = Make<StubD2DBitmap>(D2D1_BITMAP_OPTIONS_TARGET);
-        d2dBitmap->MockGetSize =
-            [&](float* width, float* height)
-            {
-                *width = expectedSize.Width;
-                *height = expectedSize.Height;
-            };                    
-        d2dBitmap->MockGetPixelSize =
-            [&](unsigned int* width, unsigned int* height)
-            {
-                *width = static_cast<UINT>(expectedSize.Width);
-                *height = static_cast<UINT>(expectedSize.Height);
-            };
+        d2dBitmap->GetSizeMethod.AllowAnyCall(
+            [&] { return D2D1_SIZE_F{expectedSize.Width, expectedSize.Height}; });
 
-        auto renderTarget = CreateRenderTarget(d2dBitmap, expectedSize);
+        d2dBitmap->GetPixelSizeMethod.AllowAnyCall(
+            [&] { return D2D_SIZE_U{ (unsigned)expectedSize.Width, (unsigned)expectedSize.Height }; });
+
+        auto renderTarget = f.CreateRenderTarget(d2dBitmap, expectedSize);
 
         ComPtr<ICanvasBitmap> renderTargetAsBitmap;
         ThrowIfFailed(renderTarget.As(&renderTargetAsBitmap));
 
         Size retrievedSize;
+        BitmapSize retrievedBitmapSize;
 
         ThrowIfFailed(renderTargetAsBitmap->get_Size(&retrievedSize));
         Assert::AreEqual(expectedSize.Width, retrievedSize.Width);
@@ -215,8 +232,8 @@ public:
 
         // Bitmaps are constructed against default DPI, currently, so the pixel 
         // size and dips size should be equal.
-        ThrowIfFailed(renderTargetAsBitmap->get_SizeInPixels(&retrievedSize));
-        Assert::AreEqual(expectedSize.Width, retrievedSize.Width);
-        Assert::AreEqual(expectedSize.Height, retrievedSize.Height);
+        ThrowIfFailed(renderTargetAsBitmap->get_SizeInPixels(&retrievedBitmapSize));
+        Assert::AreEqual(static_cast<uint32_t>(expectedSize.Width), retrievedBitmapSize.Width);
+        Assert::AreEqual(static_cast<uint32_t>(expectedSize.Height), retrievedBitmapSize.Height);
     }
 };

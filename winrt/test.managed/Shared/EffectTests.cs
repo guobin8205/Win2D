@@ -17,6 +17,8 @@ using System.Reflection;
 using Windows.Foundation;
 using Windows.UI;
 using Microsoft.VisualStudio.TestPlatform.UnitTestFramework;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.DirectX;
 using Microsoft.Graphics.Canvas.Effects;
 using Microsoft.Graphics.Canvas.Numerics;
 
@@ -132,14 +134,14 @@ namespace test.managed
                 properties[i].SetValue(effect, testValue1);
 
                 var matches1 = (from j in Enumerable.Range(0, effectProperties.Count)
-                                where BoxedValuesAreEqual(effectProperties[j], Box(testValue1), properties[i].PropertyType)
+                                where BoxedValuesAreEqual(effectProperties[j], Box(testValue1, properties[i]), properties[i])
                                 select j).ToList();
 
                 // Change the same property to a different value, and see which collection properties match now.
                 properties[i].SetValue(effect, testValue2);
 
                 var matches2 = (from j in Enumerable.Range(0, effectProperties.Count)
-                                where BoxedValuesAreEqual(effectProperties[j], Box(testValue2), properties[i].PropertyType)
+                                where BoxedValuesAreEqual(effectProperties[j], Box(testValue2, properties[i]), properties[i])
                                 select j).ToList();
 
                 // There should be one and only one property that matched both times. If not,
@@ -151,8 +153,8 @@ namespace test.managed
                 whichIndexIsProperty.Add(whichIndexIsThis);
 
                 // Change the property value back to its initial state.
-                properties[i].SetValue(effect, Unbox(initialValues[whichIndexIsThis], properties[i].PropertyType));
-                Assert.IsTrue(BoxedValuesAreEqual(initialValues[whichIndexIsThis], effectProperties[whichIndexIsThis], properties[i].PropertyType));
+                properties[i].SetValue(effect, Unbox(initialValues[whichIndexIsThis], properties[i]));
+                Assert.IsTrue(BoxedValuesAreEqual(initialValues[whichIndexIsThis], effectProperties[whichIndexIsThis], properties[i]));
             }
 
             // Should not have any duplicate property mappings.
@@ -164,8 +166,8 @@ namespace test.managed
                 object testValue1 = GetArbitraryTestValue(properties[i].PropertyType, true);
                 object testValue2 = GetArbitraryTestValue(properties[i].PropertyType, false);
 
-                object boxed1 = Box(testValue1);
-                object boxed2 = Box(testValue2);
+                object boxed1 = Box(testValue1, properties[i]);
+                object boxed2 = Box(testValue2, properties[i]);
 
                 // Fixup for color properties that don't include alpha.
                 if (properties[i].PropertyType == typeof(Color) && ((float[])initialValues[whichIndexIsProperty[i]]).Length == 3)
@@ -175,22 +177,32 @@ namespace test.managed
                 }
 
                 effectProperties[whichIndexIsProperty[i]] = boxed1;
-                Assert.AreEqual(testValue1, properties[i].GetValue(effect));
+                AssertPropertyValuesAreEqual(testValue1, properties[i].GetValue(effect));
 
                 effectProperties[whichIndexIsProperty[i]] = boxed2;
-                Assert.AreEqual(testValue2, properties[i].GetValue(effect));
+                AssertPropertyValuesAreEqual(testValue2, properties[i].GetValue(effect));
             }
         }
 
 
-        static object Box(object value)
+        static object Box(object value, PropertyInfo property)
         {
             if (value is int ||
-                value is uint ||
-                value is float ||
-                value is bool)
+                value is bool ||
+                value is float[])
             {
                 return value;
+            }
+            else if (value is float)
+            {
+                if (NeedsRadianToDegreeConversion(property))
+                {
+                    return (float)value * 180f / (float)Math.PI;
+                }
+                else
+                {
+                    return value;
+                }
             }
             else if (value is Enum)
             {
@@ -237,6 +249,19 @@ namespace test.managed
                     m.M41, m.M42, m.M43, m.M44, 
                 };
             }
+            else if (value is Matrix5x4)
+            {
+                var m = (Matrix5x4)value;
+
+                return new float[]
+                { 
+                    m.M11, m.M12, m.M13, m.M14, 
+                    m.M21, m.M22, m.M23, m.M24, 
+                    m.M31, m.M32, m.M33, m.M34, 
+                    m.M41, m.M42, m.M43, m.M44, 
+                    m.M51, m.M52, m.M53, m.M54, 
+                };
+            }
             else if (value is Rect)
             {
                 var r = (Rect)value;
@@ -268,14 +293,26 @@ namespace test.managed
         }
 
         
-        static object Unbox(object value, Type type)
+        static object Unbox(object value, PropertyInfo property)
         {
+            Type type = property.PropertyType;
+
             if (type == typeof(int) ||
-                type == typeof(uint) ||
-                type == typeof(float) ||
-                type == typeof(bool))
+                type == typeof(bool) ||
+                type == typeof(float[]))
             {
                 return value;
+            }
+            else if (type == typeof(float))
+            {
+                if (NeedsRadianToDegreeConversion(property))
+                {
+                    return (float)value * (float)Math.PI / 180f;
+                }
+                else
+                {
+                    return value;
+                }
             }
             else if (type.GetTypeInfo().IsEnum)
             {
@@ -342,6 +379,20 @@ namespace test.managed
                     M41 = a[12], M42 = a[13], M43 = a[14], M44 = a[15],
                 };
             }
+            else if (type == typeof(Matrix5x4))
+            {
+                var a = (float[])value;
+                Assert.AreEqual(20, a.Length);
+
+                return new Matrix5x4
+                { 
+                    M11 = a[0],  M12 = a[1],  M13 = a[2],  M14 = a[3],
+                    M21 = a[4],  M22 = a[5],  M23 = a[6],  M24 = a[7],
+                    M31 = a[8],  M32 = a[9],  M33 = a[10], M34 = a[11],
+                    M41 = a[12], M42 = a[13], M43 = a[14], M44 = a[15],
+                    M51 = a[16], M52 = a[17], M53 = a[18], M54 = a[19],
+                };
+            }
             else if (type == typeof(Rect))
             {
                 var a = (float[])value;
@@ -367,7 +418,7 @@ namespace test.managed
         }
 
 
-        static bool BoxedValuesAreEqual(object value1, object value2, Type type)
+        static bool BoxedValuesAreEqual(object value1, object value2, PropertyInfo property)
         {
             if (value1.GetType() != value2.GetType())
             {
@@ -376,26 +427,47 @@ namespace test.managed
 
             if (value1 is int || 
                 value1 is uint ||
-                value1 is float ||
                 value1 is bool)
             {
                 return value1.Equals(value2);
+            }
+            else if (value1 is float)
+            {
+                return Math.Abs((float)value1 - (float)value2) < 0.000001;
             }
             else if (value1 is float[])
             {
                 float[] a1 = (float[])value1;
                 float[] a2 = (float[])value2;
 
-                if (type == typeof(Color))
+                if (property.PropertyType == typeof(Color))
                 {
                     a1 = ConvertRgbToRgba(a1);
                     a2 = ConvertRgbToRgba(a2);
                 }
+
                 return a1.SequenceEqual(a2);
             }
             else
             {
                 throw new NotSupportedException("Unsupported BoxedValuesAreEqual type " + value1.GetType());
+            }
+        }
+
+
+        static void AssertPropertyValuesAreEqual(object value1, object value2)
+        {
+            if (value1 is float[] && value2 is float[])
+            {
+                Assert.IsTrue((value1 as float[]).SequenceEqual(value2 as float[]));
+            }
+            else if (value1 is float)
+            {
+                Assert.IsTrue(Math.Abs((float)value1 - (float)value2) < 0.000001);
+            }
+            else
+            {
+                Assert.AreEqual(value1, value2);
             }
         }
 
@@ -419,15 +491,25 @@ namespace test.managed
         }
 
 
+        static bool NeedsRadianToDegreeConversion(PropertyInfo property)
+        {
+            string[] anglePropertyNames =
+            {
+                "Angle",
+                "Azimuth",
+                "Elevation",
+                "LimitingConeAngle",
+            };
+
+            return anglePropertyNames.Contains(property.Name);
+        }
+
+
         static object GetArbitraryTestValue(Type type, bool whichOne)
         {
             if (type == typeof(int))
             {
-                return whichOne ? 23 : 42;
-            }
-            else if (type == typeof(uint))
-            {
-                return whichOne ? 2u : 7u;
+                return whichOne ? 2 : 7;
             }
             else if (type == typeof(float))
             {
@@ -488,6 +570,25 @@ namespace test.managed
                                       M41 = 23, M42 = 24, M43 = 25, M44 = 26
                                   };
             }
+            else if (type == typeof(Matrix5x4))
+            {
+                return whichOne ? new Matrix5x4 
+                                  { 
+                                      M11 = 1,  M12 = 2,  M13 = 3,  M14 = 4,
+                                      M21 = 5,  M22 = 6,  M23 = 7,  M24 = 8,
+                                      M31 = 9,  M32 = 10, M33 = 11, M34 = 12,
+                                      M41 = 13, M42 = 14, M43 = 15, M44 = 16,
+                                      M51 = 17, M52 = 18, M53 = 19, M54 = 20
+                                  } :
+                                  new Matrix5x4 
+                                  { 
+                                      M11 = 11, M12 = 12, M13 = 13, M14 = 14,
+                                      M21 = 15, M22 = 16, M23 = 17, M24 = 18,
+                                      M31 = 19, M32 = 20, M33 = 21, M34 = 22,
+                                      M41 = 23, M42 = 24, M43 = 25, M44 = 26,
+                                      M51 = 27, M52 = 28, M53 = 29, M54 = 30
+                                  };
+            }
             else if (type == typeof(Rect))
             {
                 return whichOne ? new Rect(1, 2, 3, 4) :
@@ -496,6 +597,11 @@ namespace test.managed
             else if (type == typeof(Color))
             {
                 return whichOne ? Colors.CornflowerBlue : Colors.Crimson;
+            }
+            else if (type == typeof(float[]))
+            {
+                return whichOne ? new float[] { 1, 2, 3 } :
+                                  new float[] { 4, 5, 6, 7, 8, 9 };
             }
             else
             {
@@ -506,12 +612,15 @@ namespace test.managed
 
         static void FilterOutCustomizedEffectProperties(Type effectType, ref List<PropertyInfo> properties, ref IList<object> effectProperties)
         {
-            // ArithmeticCompositeEffect has strange customized properties. We expose what D2D treats 
-            // as a single Vector4 as 4 separate float properties. Our general purpose reflection based
-            // property test won't understand that, so we must hide these customized properties from it.
+            // Customized properties that our general purpose reflection based property test won't understand.
+            string[] propertiesToRemove;
+            int[] indexMapping;
+
             if (effectType == typeof(ArithmeticCompositeEffect))
             {
-                string[] propertiesToRemove =
+                // ArithmeticCompositeEffect has strange customized properties.
+                // Win2D exposes what D2D treats as a single Vector4 as 4 separate float properties. 
+                propertiesToRemove = new string[]
                 {
                     "MultiplyAmount",
                     "Source1Amount",
@@ -519,15 +628,24 @@ namespace test.managed
                     "Offset"
                 };
 
-                properties = properties.Where(p => !propertiesToRemove.Contains(p.Name)).ToList();
-
-                int[] indexMapping = 
-                { 
-                    1 
-                };
-
-                effectProperties = new FilteredViewOfList<object>(effectProperties, indexMapping);
+                indexMapping = new int[] { 1 };
             }
+            else if (effectType == typeof(ColorMatrixEffect))
+            {
+                // ColorMatrixEffect.AlphaMode has special logic to remap enum values between WinRT and D2D.
+                propertiesToRemove = new string[] { "AlphaMode", };
+                indexMapping = new int[] { 0, 2 };
+            }
+            else
+            {
+                // Other effects do not need special filtering.
+                return;
+            }
+
+            // Hide the customized properties, so ReflectOverAllEffects test won't see them.
+            properties = properties.Where(p => !propertiesToRemove.Contains(p.Name)).ToList();
+
+            effectProperties = new FilteredViewOfList<object>(effectProperties, indexMapping);
         }
 
 
@@ -607,6 +725,128 @@ namespace test.managed
 
             effect.Offset = 100;
             Assert.IsTrue(((float[])effect.Properties[0]).SequenceEqual(new float[] { 23, 42, -1, 100 }));
+        }
+
+
+        [TestMethod]
+        public void ColorMatrixEffectCustomizations()
+        {
+            const uint D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED = 1;
+            const uint D2D1_COLORMATRIX_ALPHA_MODE_STRAIGHT = 2;
+
+            var effect = new ColorMatrixEffect();
+
+            // Verify defaults.
+            Assert.AreEqual(CanvasAlphaMode.Premultiplied, effect.AlphaMode);
+            Assert.AreEqual(D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED, effect.Properties[1]);
+
+            // Changing the boxed value should change the associated property.
+            effect.Properties[1] = D2D1_COLORMATRIX_ALPHA_MODE_STRAIGHT;
+            Assert.AreEqual(CanvasAlphaMode.Straight, effect.AlphaMode);
+
+            effect.Properties[1] = D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED;
+            Assert.AreEqual(CanvasAlphaMode.Premultiplied, effect.AlphaMode);
+
+            // Change the property, and verify that the boxed value changes to match.
+            effect.AlphaMode = CanvasAlphaMode.Straight;
+            Assert.AreEqual(D2D1_COLORMATRIX_ALPHA_MODE_STRAIGHT, effect.Properties[1]);
+
+            effect.AlphaMode = CanvasAlphaMode.Premultiplied;
+            Assert.AreEqual(D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED, effect.Properties[1]);
+
+            // Verify unsupported value throws.
+            Assert.ThrowsException<ArgumentException>(() => { effect.AlphaMode = CanvasAlphaMode.Ignore; });
+            Assert.AreEqual(CanvasAlphaMode.Premultiplied, effect.AlphaMode);
+        }
+
+
+        class NotACanvasImage : IEffectInput { }
+
+        void VerifyExceptionMessage(string expected, string sourceMessage)
+        {
+            // Exception messages contain something like 
+            // "Invalid pointer\r\n\r\nEffect input #0 is null",
+            // The 'invalid pointer' part is locale 
+            // dependent and is stripped out.
+
+            string delimiterString = "\r\n\r\n";
+            int delimiterPosition = sourceMessage.LastIndexOf(delimiterString);
+            string exceptionMessage = sourceMessage.Substring(delimiterPosition + delimiterString.Length);
+            Assert.AreEqual(expected, exceptionMessage);
+        }
+
+        [TestMethod]
+        public void EffectExceptionMessages()
+        {
+            var effect = new GaussianBlurEffect();
+
+            using (var device = new CanvasDevice())
+            using (var renderTarget = new CanvasRenderTarget(device, 1, 1, 96))
+            using (var drawingSession = renderTarget.CreateDrawingSession())
+            {
+                // Null source.
+                try
+                {
+                    drawingSession.DrawImage(effect);
+                    Assert.Fail("should throw");
+                }
+                catch (NullReferenceException e)
+                {
+                    VerifyExceptionMessage("Effect input #0 is null.", e.Message);
+                }
+
+                // Invalid source type.
+                effect.Source = new NotACanvasImage();
+
+                try
+                {
+                    drawingSession.DrawImage(effect);
+                    Assert.Fail("should throw");
+                }
+                catch (InvalidCastException e)
+                {
+                    VerifyExceptionMessage("Effect input #0 is an unsupported type. To draw an effect using Win2D, all its inputs must be Win2D ICanvasImage objects.", e.Message);
+                }
+
+                // Null property.
+                effect.Source = new ColorSourceEffect();
+                effect.Properties[0] = null;
+
+                try
+                {
+                    drawingSession.DrawImage(effect);
+                    Assert.Fail("should throw");
+                }
+                catch (NullReferenceException e)
+                {
+                    VerifyExceptionMessage("Effect property #0 is null.", e.Message);
+                }
+
+                // Invalid property type.
+                effect.Properties[0] = "string is not the right type";
+
+                try
+                {
+                    drawingSession.DrawImage(effect);
+                    Assert.Fail("should throw");
+                }
+                catch (ArgumentException e)
+                {
+                    VerifyExceptionMessage("Effect property #0 is the wrong type for this effect.", e.Message);
+                }
+            }
+        }
+
+
+        [TestMethod]
+        public void EffectPropertyDefaults()
+        {
+            // We have customised the default value of DpiCompensationEffect border mode property.
+            Assert.AreEqual(EffectBorderMode.Hard, new DpiCompensationEffect().BorderMode);
+
+            // Other effects should still have the standard D2D default value.
+            Assert.AreEqual(EffectBorderMode.Soft, new GaussianBlurEffect().BorderMode);
+            Assert.AreEqual(EffectBorderMode.Soft, new Transform3DEffect().BorderMode);
         }
     }
 }

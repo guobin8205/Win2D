@@ -24,21 +24,26 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <vector>
 
 // Win32
+#include <corerror.h>
 #include <d2d1_2.h>
 #include <d3d11.h>
 #include <dwrite_2.h>
 #include <dxgi1_3.h>
+#include <DirectXMath.h>
 #include <wrl.h>
 #include <strsafe.h>
 #include <wincodec.h>
 #include <winstringwrapper.h>
 
 // WinRT
-#include <windows.ui.xaml.media.dxinterop.h>
+#include <windows.applicationmodel.core.h>
+#include <windows.applicationmodel.h>
 #include <windows.graphics.display.h>
+#include <windows.ui.xaml.media.dxinterop.h>
 
 // UnitTest
 #include <CppUnitTest.h>
@@ -49,6 +54,7 @@
 // Inc
 #include <AsyncOperation.h>
 #include <ClosablePtr.h>
+#include <ComArray.h>
 #include <Constants.h>
 #include <ErrorHandling.h>
 #include <Nullable.h>
@@ -64,21 +70,26 @@
 
 // winrt.lib
 #include <CanvasBitmap.h>
+#include <CanvasBrush.h>
 #include <CanvasControl.h>
 #include <CanvasDevice.h>
 #include <CanvasDrawingSession.h>
-#include <CanvasGradientBrush.h>
 #include <CanvasImageBrush.h>
 #include <CanvasImageSource.h>
 #include <CanvasImageSourceDrawingSessionAdapter.h>
+#include <CanvasLinearGradientBrush.h>
+#include <CanvasRadialGradientBrush.h>
 #include <CanvasRenderTarget.h>
 #include <CanvasSolidColorBrush.h>
 #include <CanvasStrokeStyle.h>
 #include <CanvasTextFormat.h>
 #include <Conversion.h>
+#include <DxgiUtilities.h>
+#include <RecreatableDeviceManager.h>
 #include <ResourceManager.h>
 #include <ResourceTracker.h>
 #include <ResourceWrapper.h>
+#include <Strings.h>
 #include <effects\CanvasEffect.h>
 
 
@@ -121,4 +132,4 @@ using namespace ABI::Microsoft::Graphics::Canvas::Effects;
 #include "StubSurfaceImageSource.h"
 #include "StubSurfaceImageSourceFactory.h"
 #include "StubUserControl.h"
-#include "CanvasControlTestAdapter.h"
+

@@ -28,7 +28,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             [&]()
             {
                 CheckInPointer(value);
-                *value = GetD2DBrush()->GetOpacity();
+                *value = GetD2DBrush(nullptr)->GetOpacity();
             });
     }
 
@@ -37,7 +37,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         return ExceptionBoundary(
             [&]()
             {
-                GetD2DBrush()->SetOpacity(value);
+                GetD2DBrush(nullptr)->SetOpacity(value);
             });
     }
 
@@ -49,7 +49,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             {
                 CheckInPointer(value);
 
-                GetD2DBrush()->GetTransform(ReinterpretAs<D2D1_MATRIX_3X2_F*>(value));
+                GetD2DBrush(nullptr)->GetTransform(ReinterpretAs<D2D1_MATRIX_3X2_F*>(value));
             });
     }
 
@@ -58,8 +58,23 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         return ExceptionBoundary(
             [&]()
             {
-                GetD2DBrush()->SetTransform(ReinterpretAs<D2D1_MATRIX_3X2_F*>(&value));
+                GetD2DBrush(nullptr)->SetTransform(ReinterpretAs<D2D1_MATRIX_3X2_F*>(&value));
             });
+    }
+
+    IFACEMETHODIMP CanvasBrush::get_Device(ICanvasDevice** value)
+    {
+        return ExceptionBoundary(
+            [&]
+            {
+                CheckInPointer(value);
+                ThrowIfFailed(m_device.EnsureNotClosed().CopyTo(value));
+            });
+    }
+
+    void CanvasBrush::Close()
+    {
+        m_device.Close();
     }
 
     ComPtr<CanvasSolidColorBrush> CanvasSolidColorBrushManager::CreateNew(
@@ -67,7 +82,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         Color color)
     {
         ComPtr<ICanvasDevice> device;
-        resourceCreator->get_Device(&device);
+        ThrowIfFailed(resourceCreator->get_Device(&device));
 
         ComPtr<ICanvasDeviceInternal> canvasDeviceInternal;
         ThrowIfFailed(device.As(&canvasDeviceInternal));
@@ -76,7 +91,8 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
         auto canvasSolidColorBrush = Make<CanvasSolidColorBrush>(
             shared_from_this(),
-            d2dBrush.Get());
+            d2dBrush.Get(),
+            device.Get());
         CheckMakeResult(canvasSolidColorBrush);
         
         return canvasSolidColorBrush;
@@ -84,11 +100,13 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
 
     ComPtr<CanvasSolidColorBrush> CanvasSolidColorBrushManager::CreateWrapper(
+        ICanvasDevice* device,
         ID2D1SolidColorBrush* brush)
     {
         auto canvasSolidColorBrush = Make<CanvasSolidColorBrush>(
             shared_from_this(),
-            brush);
+            brush,
+            device);
         CheckMakeResult(canvasSolidColorBrush);
 
         return canvasSolidColorBrush;
@@ -116,8 +134,10 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
     CanvasSolidColorBrush::CanvasSolidColorBrush(
         std::shared_ptr<CanvasSolidColorBrushManager> manager,
-        ID2D1SolidColorBrush* brush)
-        : ResourceWrapper(manager, brush)
+        ID2D1SolidColorBrush* brush,
+        ICanvasDevice *device)
+        : CanvasBrush(device)
+        , ResourceWrapper(manager, brush)
     {
     }
 
@@ -142,15 +162,11 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
     IFACEMETHODIMP CanvasSolidColorBrush::Close()
     {
+        CanvasBrush::Close();
         return ResourceWrapper::Close();
     }
 
-    ComPtr<ID2D1Brush> CanvasSolidColorBrush::GetD2DBrush()
-    {
-        return GetResource();
-    }
-
-    ComPtr<ID2D1SolidColorBrush> CanvasSolidColorBrush::GetD2DSolidColorBrush()
+    ComPtr<ID2D1Brush> CanvasSolidColorBrush::GetD2DBrush(ID2D1DeviceContext*)
     {
         return GetResource();
     }

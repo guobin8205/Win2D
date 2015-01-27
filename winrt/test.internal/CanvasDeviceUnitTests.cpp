@@ -12,6 +12,7 @@
 
 #include "pch.h"
 
+#include "MockD2DCommandList.h"
 #include "TestDeviceResourceCreationAdapter.h"
 
 TEST_CLASS(CanvasDeviceTests)
@@ -38,7 +39,7 @@ public:
         Assert::AreEqual<ICanvasDevice*>(expectedCanvasDevice, actualCanvasDevice.Get());
     }
 
-    TEST_METHOD(CanvasDevice_Implements_Expected_Interfaces)
+    TEST_METHOD_EX(CanvasDevice_Implements_Expected_Interfaces)
     {
         auto canvasDevice = m_deviceManager->Create(CanvasDebugLevel::None, CanvasHardwareAcceleration::Auto);
 
@@ -48,7 +49,7 @@ public:
         ASSERT_IMPLEMENTS_INTERFACE(canvasDevice, ICanvasDeviceInternal);
     }
 
-    TEST_METHOD(CanvasDevice_Defaults_Roundtrip)
+    TEST_METHOD_EX(CanvasDevice_Defaults_Roundtrip)
     {
         auto canvasDevice = m_deviceManager->Create(CanvasDebugLevel::None, CanvasHardwareAcceleration::Auto);
         Assert::IsNotNull(canvasDevice.Get());
@@ -61,7 +62,7 @@ public:
         AssertDeviceManagerRoundtrip(canvasDevice.Get());
     }
 
-    TEST_METHOD(CanvasDevice_DebugLevels)
+    TEST_METHOD_EX(CanvasDevice_DebugLevels)
     {
         CanvasDebugLevel cases[] = { CanvasDebugLevel::None, CanvasDebugLevel::Error, CanvasDebugLevel::Warning, CanvasDebugLevel::Information };
         for (auto expectedDebugLevel : cases)
@@ -87,7 +88,7 @@ public:
             });
     }
 
-    TEST_METHOD(CanvasDevice_HardwareAcceleration)
+    TEST_METHOD_EX(CanvasDevice_HardwareAcceleration)
     {
         CanvasHardwareAcceleration cases[] = { CanvasHardwareAcceleration::On, CanvasHardwareAcceleration::Off };
         for (auto expectedHardwareAcceleration : cases)
@@ -134,7 +135,7 @@ public:
         }
     }
 
-    TEST_METHOD(CanvasDevice_Create_With_Specific_Direct3DDevice)
+    TEST_METHOD_EX(CanvasDevice_Create_With_Specific_Direct3DDevice)
     {
         ComPtr<MockD3D11Device> mockD3D11Device = Make<MockD3D11Device>();
 
@@ -164,7 +165,7 @@ public:
             [&] { m_deviceManager->Create(CanvasDebugLevel::None, nullptr); });
     }
 
-    TEST_METHOD(CanvasDevice_Create_From_D2DDevice)
+    TEST_METHOD_EX(CanvasDevice_Create_From_D2DDevice)
     {
         auto d2dDevice = Make<MockD2DDevice>(Make<MockD2DFactory>().Get());
 
@@ -182,7 +183,7 @@ public:
         Assert::AreEqual(CanvasHardwareAcceleration::Unknown, hardwareAcceleration);
     }
 
-    TEST_METHOD(CanvasDevice_Closed)
+    TEST_METHOD_EX(CanvasDevice_Closed)
     {
         auto canvasDevice = m_deviceManager->Create(CanvasDebugLevel::None, CanvasHardwareAcceleration::On);
         Assert::IsNotNull(canvasDevice.Get());
@@ -190,7 +191,7 @@ public:
         Assert::AreEqual(S_OK, canvasDevice->Close());
 
         ComPtr<IDXGIDevice> dxgiDevice;
-        Assert::AreEqual(RO_E_CLOSED, canvasDevice->GetDXGIInterface(IID_PPV_ARGS(&dxgiDevice)));
+        Assert::AreEqual(RO_E_CLOSED, canvasDevice->GetInterface(IID_PPV_ARGS(&dxgiDevice)));
 
         CanvasHardwareAcceleration hardwareAccelerationActual = static_cast<CanvasHardwareAcceleration>(1);
         Assert::AreEqual(RO_E_CLOSED, canvasDevice->get_HardwareAcceleration(&hardwareAccelerationActual));
@@ -203,7 +204,7 @@ public:
         return canvasDeviceInternal->GetD2DDevice();
     }
 
-    TEST_METHOD(CanvasDevice_HwSwFallback)
+    TEST_METHOD_EX(CanvasDevice_HwSwFallback)
     {
         Reset();
 
@@ -256,7 +257,7 @@ public:
         }
     }
 
-    TEST_METHOD(CanvasDeviceManager_Create_GetOrCreate_Returns_Same_Instance)
+    TEST_METHOD_EX(CanvasDeviceManager_Create_GetOrCreate_Returns_Same_Instance)
     {
         auto expectedCanvasDevice = m_deviceManager->Create(CanvasDebugLevel::None, CanvasHardwareAcceleration::On);
 
@@ -289,15 +290,110 @@ public:
         Assert::AreNotEqual<ICanvasDevice*>(unexpectedCanvasDevice.Get(), actualCanvasDevice.Get());
     }
 
-    TEST_METHOD(CanvasDevice_DeviceProperty)
+    TEST_METHOD_EX(CanvasDevice_DeviceProperty)
     {
-        auto device = m_deviceManager->Create(CanvasDebugLevel::None, CanvasHardwareAcceleration::On);;
+        auto device = m_deviceManager->Create(CanvasDebugLevel::None, CanvasHardwareAcceleration::On);
 
         Assert::AreEqual(E_INVALIDARG, device->get_Device(nullptr));
 
         ComPtr<ICanvasDevice> deviceVerify;
         ThrowIfFailed(device->get_Device(&deviceVerify));
         Assert::AreEqual(static_cast<ICanvasDevice*>(device.Get()), deviceVerify.Get());
+    }
+    
+    TEST_METHOD_EX(CanvasDevice_MaximumBitmapSize_NullArg)
+    {
+        auto canvasDevice = m_deviceManager->Create(CanvasDebugLevel::None, CanvasHardwareAcceleration::On);
+
+        Assert::AreEqual(E_INVALIDARG, canvasDevice->get_MaximumBitmapSizeInPixels(nullptr));
+    }
+
+    TEST_METHOD_EX(CanvasDevice_MaximumBitmapSize_Property)
+    {
+        auto d2dDevice = Make<MockD2DDevice>();
+
+        const int32_t someSize = 1234567;
+
+        d2dDevice->MockCreateDeviceContext =
+            [&](D2D1_DEVICE_CONTEXT_OPTIONS, ID2D1DeviceContext1** value)
+            {
+                auto deviceContext = Make<StubD2DDeviceContext>(d2dDevice.Get());
+
+                deviceContext->GetMaximumBitmapSizeMethod.SetExpectedCalls(1, [&]() { return someSize; });
+
+                ThrowIfFailed(deviceContext.CopyTo(value));
+            };
+
+        auto canvasDevice = m_deviceManager->GetOrCreate(d2dDevice.Get());
+
+        int32_t maximumBitmapSize;
+        ThrowIfFailed(canvasDevice->get_MaximumBitmapSizeInPixels(&maximumBitmapSize));
+
+        Assert::AreEqual(someSize, maximumBitmapSize);
+    }
+
+    TEST_METHOD_EX(CanvasDevice_CreateCommandList_ReturnsCommandListFromDeviceContext)
+    {
+        auto d2dDevice = Make<MockD2DDevice>();
+
+        auto d2dCommandList = Make<MockD2DCommandList>();
+
+        auto deviceContext = Make<StubD2DDeviceContext>(d2dDevice.Get());
+        deviceContext->CreateCommandListMethod.SetExpectedCalls(1,
+            [&](ID2D1CommandList** value)
+            {
+                return d2dCommandList.CopyTo(value);
+            });
+
+        d2dDevice->MockCreateDeviceContext =
+            [&](D2D1_DEVICE_CONTEXT_OPTIONS, ID2D1DeviceContext1** value)
+            {
+                ThrowIfFailed(deviceContext.CopyTo(value));
+            };
+
+        auto canvasDevice = m_deviceManager->GetOrCreate(d2dDevice.Get());
+        auto actualD2DCommandList = canvasDevice->CreateCommandList();
+
+        Assert::IsTrue(IsSameInstance(d2dCommandList.Get(), actualD2DCommandList.Get()));
+    }
+
+    TEST_METHOD_EX(CanvasDevice_CreateRenderTarget_ReturnsBitmapCreatedWithCorrectProperties)
+    {
+        auto d2dDevice = Make<MockD2DDevice>();
+        auto d2dBitmap = Make<MockD2DBitmap>();
+
+        float anyWidth = 1.0f;
+        float anyHeight = 2.0f;
+        auto anyFormat = DirectXPixelFormat::R16G16B16A16UIntNormalized;
+        auto anyAlphaMode = CanvasAlphaMode::Ignore;
+        float anyDpi = 3.0f;
+
+        auto deviceContext = Make<StubD2DDeviceContext>(d2dDevice.Get());
+        deviceContext->CreateBitmapMethod.SetExpectedCalls(1,
+            [&] (D2D1_SIZE_U size, void const* sourceData, UINT32 pitch, D2D1_BITMAP_PROPERTIES1 const* bitmapProperties, ID2D1Bitmap1** bitmap)
+            {
+                Assert::AreEqual<int>(DipsToPixels(anyWidth, anyDpi), size.width);
+                Assert::AreEqual<int>(DipsToPixels(anyHeight, anyDpi), size.height);
+                Assert::IsNull(sourceData);
+                Assert::AreEqual(0U, pitch);
+                Assert::AreEqual(D2D1_BITMAP_OPTIONS_TARGET, bitmapProperties->bitmapOptions);
+                Assert::AreEqual(anyDpi, bitmapProperties->dpiX);
+                Assert::AreEqual(anyDpi, bitmapProperties->dpiY);
+                Assert::AreEqual(static_cast<DXGI_FORMAT>(anyFormat), bitmapProperties->pixelFormat.format);
+                Assert::AreEqual(ToD2DAlphaMode(anyAlphaMode), bitmapProperties->pixelFormat.alphaMode);
+                return d2dBitmap.CopyTo(bitmap);
+            });
+
+        d2dDevice->MockCreateDeviceContext =
+            [&](D2D1_DEVICE_CONTEXT_OPTIONS, ID2D1DeviceContext1** value)
+            {
+                ThrowIfFailed(deviceContext.CopyTo(value));
+            };
+
+        auto canvasDevice = m_deviceManager->GetOrCreate(d2dDevice.Get());
+        auto actualBitmap = canvasDevice->CreateRenderTargetBitmap(anyWidth, anyHeight, anyFormat, anyAlphaMode, anyDpi);
+
+        Assert::IsTrue(IsSameInstance(d2dBitmap.Get(), actualBitmap.Get()));
     }
 };
 
@@ -307,7 +403,7 @@ TEST_CLASS(DefaultDeviceResourceCreationAdapterTests)
     // This tests GetDxgiDevice against real-live D3D/D2D instances since it
     // relies on non-trivial interaction with these to behave as we expect.
     //
-    TEST_METHOD(GetDxgiDevice)
+    TEST_METHOD_EX(GetDxgiDevice)
     {
         //
         // Set up

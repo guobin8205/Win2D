@@ -28,30 +28,25 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
     public:
         CanvasRenderTargetFactory();
     
-        IFACEMETHOD(Create)(
-            ICanvasResourceCreator* resourceCreator,
-            ABI::Windows::Foundation::Size size,
-            ICanvasRenderTarget** renderTarget);
-
         IFACEMETHOD(CreateWithWidthAndHeight)(
-            ICanvasResourceCreator* resourceCreator,
+            ICanvasResourceCreatorWithDpi* resourceCreator,
             float width,
             float height,
             ICanvasRenderTarget** renderTarget);
 
-        IFACEMETHOD(CreateWithWidthAndHeightAndFormat)(
+        IFACEMETHOD(CreateWithWidthAndHeightAndDpi)(
             ICanvasResourceCreator* resourceCreator,
             float width,
             float height,
-            DirectXPixelFormat format,
+            float dpi,
             ICanvasRenderTarget** renderTarget);
 
         IFACEMETHOD(CreateWithWidthAndHeightAndFormatAndAlpha)(
-            ICanvasResourceCreator* resourceCreator,
+            ICanvasResourceCreatorWithDpi* resourceCreator,
             float width,
             float height,
             DirectXPixelFormat format,
-            CanvasAlphaBehavior alpha,
+            CanvasAlphaMode alpha,
             ICanvasRenderTarget** renderTarget);
 
         IFACEMETHOD(CreateWithWidthAndHeightAndFormatAndAlphaAndDpi)(
@@ -59,7 +54,7 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
             float width,
             float height,
             DirectXPixelFormat format,
-            CanvasAlphaBehavior alpha,
+            CanvasAlphaMode alpha,
             float dpi,
             ICanvasRenderTarget** renderTarget);
 
@@ -80,19 +75,13 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         IFACEMETHOD(CreateFromDirect3D11SurfaceWithAlpha)(
             ICanvasResourceCreator* resourceCreator,
             IDirect3DSurface* surface,
-            CanvasAlphaBehavior alpha,
-            ICanvasRenderTarget** canvasRenderTarget) override;
-
-        IFACEMETHOD(CreateFromDirect3D11SurfaceWithDpi)(
-            ICanvasResourceCreator* resourceCreator,
-            IDirect3DSurface* surface,
-            float dpi,
+            CanvasAlphaMode alpha,
             ICanvasRenderTarget** canvasRenderTarget) override;
 
         IFACEMETHOD(CreateFromDirect3D11SurfaceWithAlphaAndDpi)(
             ICanvasResourceCreator* resourceCreator,
             IDirect3DSurface* surface,
-            CanvasAlphaBehavior alpha,
+            CanvasAlphaMode alpha,
             float dpi,
             ICanvasRenderTarget** canvasRenderTarget) override;
     };
@@ -110,13 +99,10 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         : public RuntimeClass<
             RuntimeClassFlags<WinRtClassicComMix>,
             ICanvasRenderTarget,
-            ICanvasResourceCreator,
             MixIn<CanvasRenderTarget, CanvasBitmapImpl<CanvasRenderTargetTraits>>>
         , public CanvasBitmapImpl<CanvasRenderTargetTraits>
     {
         InspectableClass(RuntimeClass_Microsoft_Graphics_Canvas_CanvasRenderTarget, BaseTrust);
-
-        ComPtr<ICanvasDevice> m_device;
 
     public:
         CanvasRenderTarget(
@@ -126,24 +112,28 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
 
         IFACEMETHOD(CreateDrawingSession)(
             _COM_Outptr_ ICanvasDrawingSession** drawingSession) override;
-
-        IFACEMETHOD(get_Device)(ICanvasDevice** device) override;
     };
 
 
     class CanvasRenderTargetManager : public ResourceManager<CanvasRenderTargetTraits>
     {
+        std::shared_ptr<ICanvasBitmapResourceCreationAdapter> m_adapter;
+
     public:
+        CanvasRenderTargetManager(std::shared_ptr<ICanvasBitmapResourceCreationAdapter> adapter);
+
         ComPtr<CanvasRenderTarget> CreateNew(
             ICanvasDevice* canvasDevice,
             float width,
             float height,
             DirectXPixelFormat format,
-            CanvasAlphaBehavior alpha,
+            CanvasAlphaMode alpha,
             float dpi);
 
         ComPtr<CanvasRenderTarget> CreateWrapper(
             ICanvasDevice* device,
             ID2D1Bitmap1* bitmap);
+
+        ICanvasBitmapResourceCreationAdapter* GetAdapter();
     };
 }}}}

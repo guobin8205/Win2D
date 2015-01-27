@@ -33,33 +33,21 @@ namespace CsConsumer
         CanvasRenderTarget m_offscreenTarget;
         CanvasLinearGradientBrush m_linearGradientBrush;
         CanvasRadialGradientBrush m_radialGradientBrush;
+        CanvasSwapChain m_swapChain;
 
         enum DrawnContentType
         {
             Clear_Only,
             Bitmap,
-            Effect_GaussianBlur,
-            Effect_Saturation,
-            Effect_3DTransform,
-            Effect_Blend,
-            Effect_Composite,
-            Line_Thin,
-            Line_Thick,
-            Rectangle_Thin,
-            Rectangle_Thick,
             Rectangle_Filled,
-            RoundedRectangle_Thin,
-            RoundedRectangle_Thick,
-            Ellipse_Thin,
-            Ellipse_Thick,
             Ellipse_Fill,
             Circle_Fill,
-            Dashed_Lines,
             Text,
             ImageBrush,
             OffscreenTarget,
             Gradients,
             AlternateBitmapLoading,
+            SwapChainPanel,
             Test_Scene0_Default,
             Test_Scene0_Wireframe,
             Test_Scene1_Default,
@@ -85,7 +73,7 @@ namespace CsConsumer
             }
             m_drawnContentTypeCombo.ItemsSource = drawnContentElements;
             m_drawnContentTypeCombo.SelectedIndex = 0;
-            m_drawnContentTypeCombo.SelectionChanged += ImageContentChanged;                     
+            m_drawnContentTypeCombo.SelectionChanged += ImageContentChanged;
         }
 
         void m_canvasControl_Draw(CanvasControl sender, CanvasDrawEventArgs args)
@@ -95,10 +83,13 @@ namespace CsConsumer
 
         void m_canvasControl_CreateResources(CanvasControl sender, object args)
         {
+            m_bitmap_tiger = null;
+            m_bitmap_colorGrids = null;
+
             UpdateCanvasControlSize();
             m_imageBrush = new CanvasImageBrush(sender);
 
-            m_offscreenTarget = new CanvasRenderTarget(sender, new Size(100, 100));
+            m_offscreenTarget = new CanvasRenderTarget(sender, 100, 100);
 
             using (CanvasDrawingSession ds = m_offscreenTarget.CreateDrawingSession())
             {
@@ -109,7 +100,7 @@ namespace CsConsumer
                 ds.DrawText("Def", 25, 25, Colors.LightGray);
                 ds.DrawText("Efg", 50, 50, Colors.LightGray);
             }
-            
+
             CanvasGradientStop[] stops = new CanvasGradientStop[4];
             stops[0].Position = 0;
             stops[0].Color = Colors.Black;
@@ -121,10 +112,10 @@ namespace CsConsumer
             stops[3].Color = Colors.Green;
             m_linearGradientBrush = CanvasLinearGradientBrush.CreateRainbow(sender, 0.0f);
             m_radialGradientBrush = new CanvasRadialGradientBrush(
-                sender, 
-                stops, 
-                CanvasEdgeBehavior.Wrap, 
-                CanvasAlphaBehavior.Premultiplied);
+                sender,
+                stops,
+                CanvasEdgeBehavior.Clamp,
+                CanvasAlphaMode.Premultiplied);
         }
 
         private void OnRedrawClicked(object sender, RoutedEventArgs e)
@@ -179,18 +170,17 @@ namespace CsConsumer
         {
             int horizontalLimit = (int)m_canvasControl.ActualWidth;
             int verticalLimit = (int)m_canvasControl.ActualHeight;
-            const float thickStrokeWidth = 80.0f;
-
+            
             DrawnContentType drawnContentType = (DrawnContentType)m_drawnContentTypeCombo.SelectedValue;
 
             ds.Clear(NextRandomColor());
-                
-            Rect rect;
+
             Vector2 point;
             float radiusX;
             float radiusY;
 
             Random random = new Random();
+            m_canvasSwapChainPanel.Visibility = Windows.UI.Xaml.Visibility.Collapsed;
 
             switch (drawnContentType)
             {
@@ -208,117 +198,6 @@ namespace CsConsumer
                     }
                     break;
 
-                case DrawnContentType.Effect_GaussianBlur:
-                    if (m_bitmap_tiger != null)
-                    {
-                        GaussianBlurEffect blurEffect = new GaussianBlurEffect();
-                        blurEffect.BlurAmount = (float)random.NextDouble()*5;
-                        blurEffect.Source = m_bitmap_tiger;
-                        ds.DrawImage(blurEffect, new Vector2(horizontalLimit / 2, verticalLimit / 2));
-                    }
-                    else
-                    {
-                        DrawNoBitmapErrorMessage(ds, horizontalLimit / 2, verticalLimit / 2);
-                    }
-                    break;
-
-                case DrawnContentType.Effect_Saturation:
-                    if (m_bitmap_tiger != null)
-                    {
-                        SaturationEffect saturationEffect = new SaturationEffect();
-                        saturationEffect.Saturation = (float)random.NextDouble();
-                        saturationEffect.Source = m_bitmap_tiger;
-                        ds.DrawImage(saturationEffect, new Vector2(horizontalLimit / 2, verticalLimit / 2));
-                    }
-                    else
-                    {
-                        DrawNoBitmapErrorMessage(ds, horizontalLimit / 2, verticalLimit / 2);
-                    }
-                    break;
-                case DrawnContentType.Effect_3DTransform:
-                    if (m_bitmap_tiger != null)
-                    {
-                        Transform3DEffect transformEffect = new Transform3DEffect();
-                        transformEffect.Source = m_bitmap_tiger;
-                        transformEffect.InterpolationMode = CanvasImageInterpolation.Cubic;
-                        transformEffect.TransformMatrix = Matrix4x4.CreateRotationZ((float)random.NextDouble(), new Vector3(0, 0, 0));
-                        ds.DrawImage(transformEffect, new Vector2(horizontalLimit / 2, verticalLimit / 2));
-                    }
-                    else
-                    {
-                        DrawNoBitmapErrorMessage(ds, horizontalLimit / 2, verticalLimit / 2);
-                    }
-                    break;
-                case DrawnContentType.Effect_Blend:
-                    if (m_bitmap_tiger != null)
-                    {
-                        Transform3DEffect transformEffect = new Transform3DEffect();
-                        transformEffect.Source = m_bitmap_tiger;
-                        transformEffect.TransformMatrix = Matrix4x4.CreateRotationZ((float)random.NextDouble(), new Vector3(0, 0, 0));
-                        BlendEffect blendEffect = new BlendEffect();
-                        blendEffect.Background = m_bitmap_tiger;
-                        blendEffect.Foreground = transformEffect;
-                        blendEffect.Mode = BlendEffectMode.SoftLight;
-                        ds.DrawImage(blendEffect, new Vector2(horizontalLimit / 2, verticalLimit / 2));
-                    }
-                    else
-                    {
-                        DrawNoBitmapErrorMessage(ds, horizontalLimit / 2, verticalLimit / 2);
-                    }
-                    break;
-                case DrawnContentType.Effect_Composite:
-                    if (m_bitmap_tiger != null)
-                    {
-                        CompositeEffect compositeEffect = new CompositeEffect();
-                        compositeEffect.Mode = CompositeEffectMode.SourceOver;
-
-                        float angle = 0.0f;
-                        float angleDelta = (float)random.NextDouble()+0.05f;
-                        int imageNumber = (int)(2 * Math.PI / angleDelta) + 1;
-                        foreach (var i in Enumerable.Range(0, imageNumber))
-                        {
-                            Transform3DEffect transformEffect = new Transform3DEffect();
-                            transformEffect.Source = m_bitmap_tiger;
-                            transformEffect.TransformMatrix = Matrix4x4.CreateRotationZ(angle, new Vector3(0, 0, 0));
-                            angle += angleDelta;
-                            compositeEffect.Inputs.Add(transformEffect);
-                        }
-                        ds.DrawImage(compositeEffect, new Vector2(horizontalLimit / 2, verticalLimit / 2));
-                    }
-                    else
-                    {
-                        DrawNoBitmapErrorMessage(ds, horizontalLimit / 2, verticalLimit / 2);
-                    }
-                    break;
-                case DrawnContentType.Line_Thin:
-                    ds.DrawLine(
-                        NextRandomPoint(horizontalLimit, verticalLimit).ToVector2(),
-                        NextRandomPoint(horizontalLimit, verticalLimit).ToVector2(),
-                        NextRandomColor());
-                    break;
-
-                case DrawnContentType.Line_Thick:
-                    ds.DrawLine(
-                        NextRandomPoint(horizontalLimit, verticalLimit).ToVector2(),
-                        NextRandomPoint(horizontalLimit, verticalLimit).ToVector2(),
-                        NextRandomColor(),
-                        thickStrokeWidth);
-                    break;
-
-                case DrawnContentType.Rectangle_Thin:
-                    
-                    ds.DrawRectangle(
-                        NextRandomRect(horizontalLimit, verticalLimit),
-                        NextRandomColor());
-                    break;
-
-                case DrawnContentType.Rectangle_Thick:
-                    ds.DrawRectangle(
-                        NextRandomRect(horizontalLimit, verticalLimit),
-                        NextRandomColor(),
-                        thickStrokeWidth);
-                    break;
-
                 case DrawnContentType.Rectangle_Filled:
                     Point bound0 = NextRandomPoint(horizontalLimit, verticalLimit);
                     Point bound1 = NextRandomPoint(horizontalLimit, verticalLimit);
@@ -330,36 +209,6 @@ namespace CsConsumer
                         new Rect(bound0, bound1),
                         m_linearGradientBrush);
 
-                    break;
-
-                case DrawnContentType.RoundedRectangle_Thin:
-                    NextRandomRoundedRect(horizontalLimit, verticalLimit, out rect, out radiusX, out radiusY);
-                    ds.DrawRoundedRectangle(
-                        rect, radiusX, radiusY,
-                        NextRandomColor());
-                    break;
-
-                case DrawnContentType.RoundedRectangle_Thick:
-                    NextRandomRoundedRect(horizontalLimit, verticalLimit, out rect, out radiusX, out radiusY);
-                    ds.DrawRoundedRectangle(
-                        rect, radiusX, radiusY,
-                        NextRandomColor(),
-                        thickStrokeWidth);
-                    break;
-
-                case DrawnContentType.Ellipse_Thin:
-                    NextRandomEllipse(horizontalLimit, verticalLimit, out point, out radiusX, out radiusY);
-                    ds.DrawEllipse(
-                        point, radiusX, radiusY,
-                        NextRandomColor());
-                    break;
-
-                case DrawnContentType.Ellipse_Thick:
-                    NextRandomEllipse(horizontalLimit, verticalLimit, out point, out radiusX, out radiusY);
-                    ds.DrawEllipse(
-                        point, radiusX, radiusY,
-                        NextRandomColor(),
-                        thickStrokeWidth);
                     break;
 
                 case DrawnContentType.Ellipse_Fill:
@@ -374,10 +223,6 @@ namespace CsConsumer
                         NextRandomPoint(horizontalLimit, verticalLimit).ToVector2(),
                         100,
                         NextRandomColor());
-                    break;
-
-                case DrawnContentType.Dashed_Lines:
-                    DrawDashedLines(ds, NextRandomColor(), horizontalLimit, verticalLimit);
                     break;
 
                 case DrawnContentType.Text:
@@ -425,7 +270,6 @@ namespace CsConsumer
                         DrawNoBitmapErrorMessage(ds, horizontalLimit / 2, verticalLimit / 2);
                     break;
 
-
                 case DrawnContentType.OffscreenTarget:
                     m_imageBrush.Image = m_offscreenTarget;
                     m_imageBrush.ExtendX = (CanvasEdgeBehavior)(m_random.Next(3));
@@ -466,6 +310,29 @@ namespace CsConsumer
                     }
                     else
                         DrawNoBitmapErrorMessage(ds, horizontalLimit / 2, verticalLimit / 2);
+                    break;
+
+                case DrawnContentType.SwapChainPanel:
+                    m_canvasSwapChainPanel.Visibility = Windows.UI.Xaml.Visibility.Visible;
+
+                    float swapChainWidth = horizontalLimit * ((float)random.NextDouble() / 2 + 0.5f);
+                    float swapChainHeight = verticalLimit * ((float)random.NextDouble() / 2 + 0.5f);
+
+                    if (m_swapChain == null)
+                    {
+                        m_swapChain = new CanvasSwapChain(ds, swapChainWidth, swapChainHeight);
+                        m_canvasSwapChainPanel.SwapChain = m_swapChain;
+                    }
+                    else
+                    {
+                        m_swapChain.ResizeBuffers(swapChainWidth, swapChainHeight);
+                    }
+
+                    using (CanvasDrawingSession panelDS = m_swapChain.CreateDrawingSession(NextRandomColor()))
+                    {
+                        panelDS.DrawCircle(swapChainWidth / 2.0f, swapChainHeight / 2.0f, 100.0f, NextRandomColor(), 20.0f);
+                    }
+                    m_swapChain.Present();
                     break;
 
                 case DrawnContentType.Test_Scene0_Default:
@@ -565,23 +432,23 @@ namespace CsConsumer
                 };
             m_bitmap_colorGrids[1] = CanvasBitmap.CreateFromBytes( // Doesn't necessarily need to be async, but grouped here for organization.
                 m_canvasControl,
-                imageBytes, 
-                4, 
-                2, 
-                Microsoft.Graphics.Canvas.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 
-                CanvasAlphaBehavior.Premultiplied);
+                imageBytes,
+                4,
+                2,
+                Microsoft.Graphics.Canvas.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                CanvasAlphaMode.Premultiplied);
 
             Color[] imageColors = new Color[]
                 {
                     Colors.Blue, Colors.Black, Colors.Black, Colors.Red,
                     Colors.White, Colors.White, Colors.White, Colors.White
                 };
-            m_bitmap_colorGrids[2] = CanvasBitmap.CreateFromColors( 
+            m_bitmap_colorGrids[2] = CanvasBitmap.CreateFromColors(
                 m_canvasControl,
                 imageColors,
                 4,
                 2,
-                CanvasAlphaBehavior.Premultiplied);
+                CanvasAlphaMode.Premultiplied);
 
             m_canvasControl.Invalidate();
         }

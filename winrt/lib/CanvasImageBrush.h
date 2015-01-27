@@ -70,11 +70,12 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         // Bitmap brush is eligible when the source image is a bitmap and the source rect
         // is NULL.
 
-        ClosablePtr<ICanvasDevice> m_device;
-
         ComPtr<ID2D1BitmapBrush1> m_d2dBitmapBrush;
 
         ComPtr<ID2D1ImageBrush> m_d2dImageBrush;
+
+        // TODO #2630: stop explicitly storing this once we support proper effect interop.
+        ComPtr<ICanvasImageInternal> m_effectNeedingDpiFixup;
 
         bool m_useBitmapBrush;
 
@@ -110,13 +111,13 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas
         IFACEMETHOD(Close)() override;
 
         // ICanvasBrushInternal
-        virtual ComPtr<ID2D1Brush> GetD2DBrush() override;
+        virtual ComPtr<ID2D1Brush> GetD2DBrush(ID2D1DeviceContext* deviceContext) override;
 
         // ICanvasImageBrushInternal
         virtual ComPtr<ID2D1Brush> GetD2DBrushNoValidation() override;
 
         // ICanvasResourceWrapperNative
-        IFACEMETHOD(GetResource)(IUnknown** resource) override;
+        IFACEMETHOD(GetResource)(REFIID iid, void** resource) override;
 
         // non-interface methods
         void SetImage(ICanvasImage* image);

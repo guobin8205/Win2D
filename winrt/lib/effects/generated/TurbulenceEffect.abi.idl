@@ -25,7 +25,7 @@ namespace Microsoft.Graphics.Canvas.Effects
 
     [version(VERSION), uuid(1CB1B33D-20E9-564B-856E-37E9FA1D0016), exclusiveto(TurbulenceEffect)]
     interface ITurbulenceEffect : IInspectable
-        requires  Microsoft.Graphics.Canvas.ICanvasImage
+        requires Microsoft.Graphics.Canvas.ICanvasImage
     {
         [propget]
         HRESULT Offset([out, retval] Microsoft.Graphics.Canvas.Numerics.Vector2* value);
@@ -46,10 +46,10 @@ namespace Microsoft.Graphics.Canvas.Effects
         HRESULT Frequency([in] Microsoft.Graphics.Canvas.Numerics.Vector2 value);
 
         [propget]
-        HRESULT Octaves([out, retval] UINT32* value);
+        HRESULT Octaves([out, retval] INT32* value);
 
         [propput]
-        HRESULT Octaves([in] UINT32 value);
+        HRESULT Octaves([in] INT32 value);
 
         [propget]
         HRESULT Seed([out, retval] INT32* value);

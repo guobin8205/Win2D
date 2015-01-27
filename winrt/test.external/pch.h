@@ -26,16 +26,21 @@
 #include <d2d1_2.h>
 #include <dwrite_2.h>
 #include <DirectXMath.h>
+#include <Combaseapi.h>
+#include <wincodec.h>
 
 #include <ErrorHandling.h>
 #include <Utilities.h>
 #include <Constants.h>
 
 #include <Microsoft.Graphics.Canvas.DirectX.Direct3D11.interop.h>
+#include <windowsnumerics.h>
+
 #include <Microsoft.Graphics.Canvas.native.h>
 #include <Canvas.abi.h>
 
 #pragma warning(disable: 4100)  // "unreferenced formal parameter"
+#pragma warning(disable: 4351)  // "elements of {array} will be default initialized"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using namespace Microsoft::WRL;

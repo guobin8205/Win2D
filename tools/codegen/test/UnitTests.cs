@@ -53,6 +53,10 @@ namespace CodeGen.Test
         [DeploymentItem("../../../../winrt/lib/effects/generated", "codegen/effects/expected")]
         [DeploymentItem("../../../../tools/codegen/exe/apiref/effects", "codegen/effects/in/apiref/effects")]
         [DeploymentItem("Deployed Files/Settings.xml", "codegen/effects/in")]
+        [DeploymentItem("Deployed Files/D2DEffectAuthor.xml", "codegen/effects/in/apiref")]
+        [DeploymentItem("Deployed Files/D2DTypes.xml", "codegen/effects/in/apiref")]
+        [DeploymentItem("Deployed Files/D2DTypes2.xml", "codegen/effects/in/apiref")]
+        [DeploymentItem("Deployed Files/D2DTypes3.xml", "codegen/effects/in/apiref")]
         public void OutputEffectsIsSync()
         {
             //
@@ -76,7 +80,8 @@ namespace CodeGen.Test
             Directory.CreateDirectory(actualDir);
 
             // Run codegen
-            CodeGen.Program.GenerateEffectsCode(inputDir, actualDir);
+            CodeGen.Program.ProcessedInputFiles input = CodeGen.Program.ProcessInputFiles(inputDir);
+            CodeGen.Program.GenerateEffectsCode(inputDir, input.TypeDictionary, actualDir);
 
             // Verify the output from the codegen matches what was expected
             var expectedDirectoryInfo = new DirectoryInfo(expectedDir);
@@ -86,7 +91,7 @@ namespace CodeGen.Test
             FileInfo[] actualGeneratedFiles = actualDirectoryInfo.GetFiles();
 
             // Ensure the correct number of files was generated.
-            const int expectedEffectCount = 33;
+            const int expectedEffectCount = 37;
             Assert.AreEqual(expectedEffectCount * 3 + 1, expectedGeneratedFiles.Length);
             Assert.AreEqual(expectedGeneratedFiles.Length, actualGeneratedFiles.Length);
 
@@ -123,7 +128,8 @@ namespace CodeGen.Test
             string actualDir = "codegen/actual";
 
             // Run the codegen            
-            CodeGen.Program.GenerateCode(inputDir, actualDir);
+            CodeGen.Program.ProcessedInputFiles input = CodeGen.Program.ProcessInputFiles(inputDir);
+            CodeGen.Program.GenerateCode(input, actualDir);
 
             // Verify the output from the codegen matches what was expected
             var expectedDirectoryInfo = new DirectoryInfo(expectedDir);
@@ -206,7 +212,7 @@ namespace CodeGen.Test
                     CodeGen.Enum e = (CodeGen.Enum)(typeDictionary[nameKey]);
                     foreach (Overrides.XmlBindings.EnumValue overrideEnumValue in overrideEnum.Values)
                     {
-                        CodeGen.EnumValue match = e.Values.Find(x => x.NativeName == overrideEnumValue.Name);
+                        CodeGen.EnumValue match = e.Values.Find(x => x.RawNameComponent == overrideEnumValue.Name);
                         Assert.IsNotNull(match, "Unexpected override enum value: " + overrideEnum + "::" + overrideEnumValue.Name);
                     }
                 }

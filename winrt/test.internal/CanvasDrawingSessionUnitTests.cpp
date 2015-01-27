@@ -63,46 +63,56 @@ TEST_CLASS(CanvasDrawingSession_CallsAdapter)
         }
     };
 
-    ComPtr<ID2D1DeviceContext1> m_expectedDeviceContext;
-    std::shared_ptr<MockCanvasDrawingSessionAdapter> m_mockAdapter;
-    ComPtr<CanvasDrawingSession> m_canvasDrawingSession;
-
-public:
-    TEST_METHOD_INITIALIZE(Init)
+    struct Fixture
     {
-        m_expectedDeviceContext = Make<MockD2DDeviceContext>();
-        m_mockAdapter = std::make_shared<MockCanvasDrawingSessionAdapter>();
+        ComPtr<ID2D1DeviceContext1> m_expectedDeviceContext;
+        std::shared_ptr<MockCanvasDrawingSessionAdapter> m_mockAdapter;
+        ComPtr<CanvasDrawingSession> m_canvasDrawingSession;
 
-        auto manager = std::make_shared<CanvasDrawingSessionManager>();
-        m_canvasDrawingSession = manager->Create(m_expectedDeviceContext.Get(), m_mockAdapter);
-    }
+        Fixture()
+        {
+            m_expectedDeviceContext = Make<MockD2DDeviceContext>();
+            m_mockAdapter = std::make_shared<MockCanvasDrawingSessionAdapter>();
+            
+            auto manager = std::make_shared<CanvasDrawingSessionManager>();
+            m_canvasDrawingSession = manager->Create(m_expectedDeviceContext.Get(), m_mockAdapter);
+        }
+    };
 
-    TEST_METHOD(CanvasDrawingSession_Calls_Adapter_BeginDraw_EndDraw_When_Closed)
+    TEST_METHOD_EX(CanvasDrawingSession_Calls_Adapter_BeginDraw_EndDraw_When_Closed)
     {
-        ThrowIfFailed(m_canvasDrawingSession->Close());
-        m_mockAdapter->AssertEndDrawCalled();
+        Fixture f;
+
+        ThrowIfFailed(f.m_canvasDrawingSession->Close());
+        f.m_mockAdapter->AssertEndDrawCalled();
         
         // EndDraw should only be called once even if we call Close again
-        ThrowIfFailed(m_canvasDrawingSession->Close());
+        ThrowIfFailed(f.m_canvasDrawingSession->Close());
     }
 
-    TEST_METHOD(CanvasDrawingSession_Calls_Adapter_BeginDraw_EndDraw_When_Destroyed)
+    TEST_METHOD_EX(CanvasDrawingSession_Calls_Adapter_BeginDraw_EndDraw_When_Destroyed)
     {
-        m_canvasDrawingSession.Reset();
-        m_mockAdapter->AssertEndDrawCalled();
+        Fixture f;
+
+        f.m_canvasDrawingSession.Reset();
+        f.m_mockAdapter->AssertEndDrawCalled();
     }
 
-    TEST_METHOD(CanvasDrawingSession_Close_EndDrawErrorsReturned)
+    TEST_METHOD_EX(CanvasDrawingSession_Close_EndDrawErrorsReturned)
     {
-        m_mockAdapter->SetEndDrawToThrow();
-        Assert::AreEqual(DXGI_ERROR_DEVICE_REMOVED, m_canvasDrawingSession->Close());
+        Fixture f;
+
+        f.m_mockAdapter->SetEndDrawToThrow();
+        Assert::AreEqual(DXGI_ERROR_DEVICE_REMOVED, f.m_canvasDrawingSession->Close());
     }
 
-    TEST_METHOD(CanvasDrawingSession_Destroy_EndDrawErrorsSwallowed)
+    TEST_METHOD_EX(CanvasDrawingSession_Destroy_EndDrawErrorsSwallowed)
     {
-        m_mockAdapter->SetEndDrawToThrow();
-        m_canvasDrawingSession.Reset();
-        m_mockAdapter->AssertEndDrawCalled();
+        Fixture f;
+
+        f.m_mockAdapter->SetEndDrawToThrow();
+        f.m_canvasDrawingSession.Reset();
+        f.m_mockAdapter->AssertEndDrawCalled();
     }    
 };
 
@@ -167,33 +177,33 @@ public:
             // The first draw uses ArbitraryMarkerColor1 and should trigger a call to CreateSolidColorBrush.
             // The second uses ArbitraryMarkerColor2 and should call SetColor on the previously created brush.
 
-            f.DeviceContext->MockCreateSolidColorBrush =
+            f.DeviceContext->CreateSolidColorBrushMethod.AllowAnyCall(
                 [&](const D2D1_COLOR_F* color, const D2D1_BRUSH_PROPERTIES* brushProperties, ID2D1SolidColorBrush** solidColorBrush)
-            {
-                // First we should see a brush created using ArbitraryMarkerColor1.
-                Assert::IsNull(m_expectedBrush);
-                Assert::AreEqual(ToD2DColor(ArbitraryMarkerColor1), *color);
-
-                auto brush = Make<MockD2DSolidColorBrush>();
-                m_expectedBrush = brush.Get();
-                brush.CopyTo(solidColorBrush);
-
-                // Then we should see SetColor called with ArbitraryMarkerColor2.
-                brush->MockSetColor =
-                    [&](const D2D1_COLOR_F* color)
                 {
-                    Assert::IsFalse(m_gotColor2);
-                    Assert::AreEqual(ToD2DColor(ArbitraryMarkerColor2), *color);
-                    m_gotColor2 = true;
-                };
+                    // First we should see a brush created using ArbitraryMarkerColor1.
+                    Assert::IsNull(m_expectedBrush);
+                    Assert::AreEqual(ToD2DColor(ArbitraryMarkerColor1), *color);
 
-                return S_OK;
-            };
+                    auto brush = Make<MockD2DSolidColorBrush>();
+                    m_expectedBrush = brush.Get();
+                    brush.CopyTo(solidColorBrush);
+
+                    // Then we should see SetColor called with ArbitraryMarkerColor2.
+                    brush->MockSetColor =
+                        [&](const D2D1_COLOR_F* color)
+                        {
+                            Assert::IsFalse(m_gotColor2);
+                            Assert::AreEqual(ToD2DColor(ArbitraryMarkerColor2), *color);
+                            m_gotColor2 = true;
+                        };
+
+                    return S_OK;
+                });
         }
         else
         {
             // When testing a WithBrush overload, we expect to see the stub brush provided by CanvasDrawingSessionFixture.
-            m_expectedBrush = f.Brush->GetD2DBrush().Get();
+            m_expectedBrush = f.Brush->GetD2DBrush(nullptr).Get();
         }
     }
 
@@ -232,26 +242,22 @@ public:
     // Clear
     //
 
-    TEST_METHOD(CanvasDrawingSession_Clear)
+    TEST_METHOD_EX(CanvasDrawingSession_Clear)
     {
         CanvasDrawingSessionFixture f;
 
         ABI::Windows::UI::Color expectedColor{ 1, 2, 3, 4 };
 
-        bool clearCalled = false;
-        f.DeviceContext->MockClear =
+        f.DeviceContext->ClearMethod.SetExpectedCalls(1,
             [&](const D2D1_COLOR_F* color)
             {
-                Assert::IsFalse(clearCalled);
                 Assert::AreEqual(expectedColor.A, NormalizedToUint8(color->a));
                 Assert::AreEqual(expectedColor.R, NormalizedToUint8(color->r));
                 Assert::AreEqual(expectedColor.G, NormalizedToUint8(color->g));
                 Assert::AreEqual(expectedColor.B, NormalizedToUint8(color->b));
-                clearCalled = true;
-            };
+            });
 
         ThrowIfFailed(f.DS->Clear(expectedColor));
-        Assert::IsTrue(clearCalled);
     }
 
 
@@ -269,7 +275,7 @@ public:
         {
             auto d2dBitmap = Make<StubD2DBitmap>();
             Image = As<ID2D1Image>(d2dBitmap);
-            Bitmap = MakeBitmapManager()->GetOrCreate(d2dBitmap.Get());
+            Bitmap = MakeBitmapManager()->GetOrCreate(nullptr, d2dBitmap.Get());
         }
 
     private:
@@ -282,104 +288,182 @@ public:
     };
 
 
-    TEST_METHOD(CanvasDrawingSession_DrawImage_NullImage)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawImage_NullImage)
     {
         BitmapFixture f;
 
         Assert::AreEqual(E_INVALIDARG, f.DS->DrawImageAtOrigin(nullptr));
+
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawImageWithSourceRect(nullptr, Vector2{}, Rect{}));
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawImageWithSourceRectAndInterpolation(nullptr, Vector2{}, Rect{}, CanvasImageInterpolation::NearestNeighbor));
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawImageWithSourceRectAndInterpolationAndComposite(nullptr, Vector2{}, Rect{}, CanvasImageInterpolation::NearestNeighbor, CanvasComposite::SourceOver));
+
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawImageAtCoordsWithSourceRect(nullptr, 0, 0, Rect{}));
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawImageAtCoordsWithSourceRectAndInterpolation(nullptr, 0, 0, Rect{}, CanvasImageInterpolation::NearestNeighbor));
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawImageAtCoordsWithSourceRectAndInterpolationAndComposite(nullptr, 0, 0, Rect{}, CanvasImageInterpolation::NearestNeighbor, CanvasComposite::SourceOver));
     }
 
 
-    TEST_METHOD(CanvasDrawingSession_DrawImage_NullBitmapImage)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawImage_NullBitmapImage)
     {
         BitmapFixture f;
         Assert::AreEqual(E_INVALIDARG, f.DS->DrawBitmapWithDestRect(nullptr, Rect{}));
         Assert::AreEqual(E_INVALIDARG, f.DS->DrawBitmapWithDestRectAndSourceRect(nullptr, Rect{}, Rect{}));
+
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawBitmapWithDestRectAndSourceRectAndOpacity(nullptr, Rect{}, Rect{}, 0));
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawBitmapWithDestRectAndSourceRectAndOpacityAndInterpolation(nullptr, Rect{}, Rect{}, 0, CanvasImageInterpolation::NearestNeighbor));
+        Assert::AreEqual(E_INVALIDARG, f.DS->DrawBitmapWithDestRectAndSourceRectAndOpacityAndInterpolationAndPerspective(nullptr, Rect{}, Rect{}, 0, CanvasImageInterpolation::NearestNeighbor, Matrix4x4{}));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawImage_Bitmap)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawImage_Bitmap)
     {
         BitmapFixture f;
 
-        bool drawImageCalled = false;
-        f.DeviceContext->MockDrawImage = 
-            [&](ID2D1Image* image)
+        f.DeviceContext->DrawImageMethod.SetExpectedCalls(1,
+            [&](ID2D1Image* image, D2D1_POINT_2F const*, D2D1_RECT_F const*, D2D1_INTERPOLATION_MODE, D2D1_COMPOSITE_MODE)
             {
-                Assert::IsFalse(drawImageCalled);
                 Assert::IsNotNull(image);
                 Assert::AreEqual(f.Image.Get(), image);
-                drawImageCalled = true;
-            };
+            });
 
         ThrowIfFailed(f.DS->DrawImageAtOrigin(f.Bitmap.Get()));
-        Assert::IsTrue(drawImageCalled);
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawImage_BitmapWithSourceAndDestRect)
+    class BitmapFixtureWithDrawImageVerification : public BitmapFixture
     {
-        BitmapFixture f;
-
-        bool drawBitmapCalled = false;
-        f.DeviceContext->MockDrawBitmap =
-            [&](ID2D1Bitmap* bitmap, 
-                const D2D1_RECT_F* destRect, 
-                FLOAT opacity, 
-                D2D1_INTERPOLATION_MODE interpolationMode, 
-                const D2D1_RECT_F* sourceRect, 
-                const D2D1_MATRIX_4X4_F* perspective)
+    public:
+        BitmapFixtureWithDrawImageVerification(
+            Rect const& sourceRect,
+            CanvasImageInterpolation interpolation = CanvasImageInterpolation::Linear,
+            CanvasComposite composite = CanvasComposite::SourceOver)
         {
-            Assert::IsFalse(drawBitmapCalled);
-            Assert::IsNotNull(bitmap);
-            auto image = As<ID2D1Image>(bitmap);
-            Assert::AreEqual(f.Image.Get(), image.Get());
-            Assert::AreEqual(D2D1::RectF(5, 6, 5 + 7, 6 + 8), *sourceRect);
-            Assert::AreEqual(1.0f, opacity);
-            Assert::AreEqual(D2D1_INTERPOLATION_MODE_LINEAR, interpolationMode);
-            Assert::AreEqual(D2D1::RectF(1, 2, 1 + 3, 2 + 4), *destRect);
-            Assert::IsNull(perspective); 
-            drawBitmapCalled = true;
-        };
+            D2D1_RECT_F expectedSourceRect = ToD2DRect(sourceRect);
+            D2D1_INTERPOLATION_MODE expectedInterpolation = static_cast<D2D1_INTERPOLATION_MODE>(interpolation);
+            D2D1_COMPOSITE_MODE expectedComposite = static_cast<D2D1_COMPOSITE_MODE>(composite);
+            
+            DeviceContext->DrawImageMethod.SetExpectedCalls(1,
+                [=](ID2D1Image* image, CONST D2D1_POINT_2F *targetOffset, CONST D2D1_RECT_F *imageRectangle, D2D1_INTERPOLATION_MODE interpolationMode, D2D1_COMPOSITE_MODE compositeMode)
+                {
+                    Assert::IsNotNull(image);
+                    Assert::AreEqual(Image.Get(), image);
+                    Assert::AreEqual(expectedSourceRect, *imageRectangle);
+                    Assert::AreEqual(expectedInterpolation, interpolationMode);
+                    Assert::AreEqual(expectedComposite, compositeMode);
+                });
+        }
+    };
 
-        Rect dest = {1, 2, 3, 4};
-        Rect source = {5, 6, 7, 8};
-        ThrowIfFailed(f.DS->DrawBitmapWithDestRectAndSourceRect(
-            f.Bitmap.Get(),
-            dest,
-            source));
-        Assert::IsTrue(drawBitmapCalled);
-    }
-
-    TEST_METHOD(CanvasDrawingSession_DrawImage_BitmapWithDestRect)
+    class BitmapFixtureWithDrawBitmapVerification : public BitmapFixture
     {
-        BitmapFixture f;
-
-        bool drawBitmapCalled = false;
-        f.DeviceContext->MockDrawBitmap =
-            [&](ID2D1Bitmap* bitmap,
-            const D2D1_RECT_F* destRect,
-            FLOAT opacity,
-            D2D1_INTERPOLATION_MODE interpolationMode,
-            const D2D1_RECT_F* sourceRect,
-            const D2D1_MATRIX_4X4_F* perspective)
+    public:
+        BitmapFixtureWithDrawBitmapVerification(
+            Rect const& destRect,
+            Rect* sourceRect = nullptr,
+            float opacity = 1.0f,
+            CanvasImageInterpolation interpolation = CanvasImageInterpolation::Linear,
+            Matrix4x4* perspective = nullptr)
         {
-            Assert::IsFalse(drawBitmapCalled);
-            Assert::IsNotNull(bitmap);
-            auto image = As<ID2D1Image>(bitmap);
-            Assert::AreEqual(f.Image.Get(), image.Get());
-            Assert::IsNull(sourceRect);
-            Assert::AreEqual(1.0f, opacity);
-            Assert::AreEqual(D2D1_INTERPOLATION_MODE_LINEAR, interpolationMode);
-            Assert::AreEqual(D2D1::RectF(1, 2, 1 + 3, 2 + 4), *destRect);
-            Assert::IsNull(perspective);
-            drawBitmapCalled = true;
-        };
+            D2D1_RECT_F expectedDestRect = ToD2DRect(destRect);
 
-        Rect dest = { 1, 2, 3, 4 };
-        ThrowIfFailed(f.DS->DrawBitmapWithDestRect(f.Bitmap.Get(), dest));
-        Assert::IsTrue(drawBitmapCalled);
+            D2D1_RECT_F expectedSourceRect;
+            if (sourceRect) expectedSourceRect = ToD2DRect(*sourceRect);
+            bool expectSourceRect = sourceRect != nullptr;
+
+            D2D1_INTERPOLATION_MODE expectedInterpolation = static_cast<D2D1_INTERPOLATION_MODE>(interpolation);
+
+            D2D1_MATRIX_4X4_F expectedPerspective;
+            if (perspective) expectedPerspective = *(ReinterpretAs<D2D1_MATRIX_4X4_F*>(perspective));
+            bool expectPerspective = perspective != nullptr;
+
+            DeviceContext->DrawBitmapMethod.SetExpectedCalls(1,
+                [=](ID2D1Bitmap* bitmap, const D2D1_RECT_F* destRect, FLOAT opacity, D2D1_INTERPOLATION_MODE interpolation, const D2D1_RECT_F* sourceRect, const D2D1_MATRIX_4X4_F* perspective)
+                {
+                    Assert::IsNotNull(bitmap);
+                    auto image = As<ID2D1Image>(bitmap);
+                    Assert::AreEqual(Image.Get(), image.Get());
+                    Assert::AreEqual(expectedDestRect, *destRect);
+
+                    if (expectSourceRect)
+                    {
+                        Assert::IsNotNull(sourceRect);
+                        Assert::AreEqual(expectedSourceRect, *sourceRect);
+                    }
+                    else
+                    {
+                        Assert::IsNull(sourceRect);
+                    }
+
+                    Assert::AreEqual(expectedInterpolation, interpolation);
+
+                    if (expectPerspective)
+                    {
+                        Assert::IsNotNull(perspective);
+                        Assert::AreEqual(expectedPerspective, *perspective);
+                    }
+                    else
+                    {
+                        Assert::IsNull(perspective);
+                    }
+                });
+        }
+    };
+
+    TEST_METHOD_EX(CanvasDrawingSession_DrawImage_Overloads)
+    {
+        Rect destRect{ 33, 12, 4, 2 };
+        Rect sourceRect{ 3, 4, 7, 9 };
+        CanvasImageInterpolation interpolation = CanvasImageInterpolation::MultiSampleLinear;
+        CanvasComposite composite = CanvasComposite::Add;
+        const float opacity = 0.45f;
+        Matrix4x4 perspective = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+
+        {
+            BitmapFixtureWithDrawImageVerification f(sourceRect);
+            ThrowIfFailed(f.DS->DrawImageWithSourceRect(f.Bitmap.Get(), Vector2{ 123, 456 }, sourceRect));
+        }
+        {
+            BitmapFixtureWithDrawImageVerification f(sourceRect, interpolation);
+            ThrowIfFailed(f.DS->DrawImageWithSourceRectAndInterpolation(f.Bitmap.Get(), Vector2{ 123, 456 }, sourceRect, interpolation));
+        }
+        {
+            BitmapFixtureWithDrawImageVerification f(sourceRect, interpolation, composite);
+            ThrowIfFailed(f.DS->DrawImageWithSourceRectAndInterpolationAndComposite(f.Bitmap.Get(), Vector2{ 123, 456 }, sourceRect, interpolation, composite));
+        }
+        {
+            BitmapFixtureWithDrawImageVerification f(sourceRect);
+            ThrowIfFailed(f.DS->DrawImageAtCoordsWithSourceRect(f.Bitmap.Get(), 123, 456, sourceRect));
+        }
+        {
+            BitmapFixtureWithDrawImageVerification f(sourceRect, interpolation);
+            ThrowIfFailed(f.DS->DrawImageAtCoordsWithSourceRectAndInterpolation(f.Bitmap.Get(), 123, 456, sourceRect, interpolation));
+        }
+        {
+            BitmapFixtureWithDrawImageVerification f(sourceRect, interpolation, composite);
+            ThrowIfFailed(f.DS->DrawImageAtCoordsWithSourceRectAndInterpolationAndComposite(f.Bitmap.Get(), 123, 456, sourceRect, interpolation, composite));
+        }
+        {
+            BitmapFixtureWithDrawBitmapVerification f(destRect, &sourceRect, opacity);
+            ThrowIfFailed(f.DS->DrawBitmapWithDestRectAndSourceRectAndOpacity(f.Bitmap.Get(), destRect, sourceRect, opacity));
+        }
+        {
+            BitmapFixtureWithDrawBitmapVerification f(destRect, &sourceRect, opacity, interpolation);
+            ThrowIfFailed(f.DS->DrawBitmapWithDestRectAndSourceRectAndOpacityAndInterpolation(f.Bitmap.Get(), destRect, sourceRect, opacity, interpolation));
+        }
+        {
+            BitmapFixtureWithDrawBitmapVerification f(destRect, &sourceRect, opacity, interpolation, &perspective);
+            ThrowIfFailed(f.DS->DrawBitmapWithDestRectAndSourceRectAndOpacityAndInterpolationAndPerspective(f.Bitmap.Get(), destRect, sourceRect, opacity, interpolation, perspective));
+        }
+        {
+            BitmapFixtureWithDrawBitmapVerification f(destRect, &sourceRect);
+            ThrowIfFailed(f.DS->DrawBitmapWithDestRectAndSourceRect(f.Bitmap.Get(), destRect, sourceRect));
+        }
+        {
+            BitmapFixtureWithDrawBitmapVerification f(destRect);
+            ThrowIfFailed(f.DS->DrawBitmapWithDestRect(f.Bitmap.Get(), destRect));
+        }
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawImage_GaussianBlurEffect)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawImage_GaussianBlurEffect)
     {
         BitmapFixture f;
 
@@ -387,7 +471,7 @@ public:
         
         bool setInputCalled = false;
         mockEffect->MockSetInput = 
-            [&]
+            [&](UINT32, ID2D1Image*)
             {
                 Assert::IsFalse(setInputCalled);
                 setInputCalled = true;
@@ -395,7 +479,7 @@ public:
 
         bool setValueCalled = false;
         mockEffect->MockSetValue = 
-            [&]
+            [&](UINT32, D2D1_PROPERTY_TYPE, CONST BYTE*, UINT32)
             {
                 setValueCalled = true;
                 return S_OK;
@@ -409,41 +493,42 @@ public:
             return S_OK;
         };
 
-
         ComPtr<Effects::GaussianBlurEffect> blurEffect = Make<Effects::GaussianBlurEffect>();
         
         ThrowIfFailed(blurEffect->put_Source(f.Bitmap.Get()));
 
         ComPtr<StubCanvasDevice> canvasDevice = Make<StubCanvasDevice>();
-        f.DeviceContext->MockGetDevice = [&](ID2D1Device** device)
-        {
-            ThrowIfFailed(canvasDevice->GetD2DDevice().CopyTo(device));
-        };
 
-        f.DeviceContext->MockGetDevice = [&](ID2D1Device** device)
-        {
-            ThrowIfFailed(canvasDevice->GetD2DDevice().CopyTo(device));
-        };
+        f.DeviceContext->GetDeviceMethod.AllowAnyCallAlwaysCopyValueToParam(canvasDevice->GetD2DDevice());
 
-        bool drawImageCalled = false;
-        f.DeviceContext->MockDrawImage =
-            [&](ID2D1Image* image)
+        f.DeviceContext->GetDpiMethod.SetExpectedCalls(1,
+            [&](float* dpiX, float* dpiY)
             {
-                Assert::IsFalse(drawImageCalled);
-                Assert::IsNotNull(image);
-                drawImageCalled = true;
-            };
+                *dpiX = DEFAULT_DPI;
+                *dpiY = DEFAULT_DPI;
+            });
 
-        f.DeviceContext->MockCreateEffect = 
-            [&](ID2D1Effect** effect)
+        f.DeviceContext->GetTargetMethod.SetExpectedCalls(1,
+            [&](ID2D1Image** target)
+            {
+                *target = nullptr;
+            });
+
+        f.DeviceContext->CreateEffectMethod.SetExpectedCalls(1,
+            [&](IID const&, ID2D1Effect** effect)
             {
                 return mockEffect.CopyTo(effect);
-            };
+            });
+
+        f.DeviceContext->DrawImageMethod.SetExpectedCalls(1,
+            [](ID2D1Image* image, D2D1_POINT_2F const*, D2D1_RECT_F const*, D2D1_INTERPOLATION_MODE, D2D1_COMPOSITE_MODE)
+            {
+                Assert::IsNotNull(image);
+            });
 
         ThrowIfFailed(blurEffect->put_BlurAmount(5.0f));
 
         ThrowIfFailed(f.DS->DrawImageAtOrigin(blurEffect.Get()));
-        Assert::IsTrue(drawImageCalled);
         Assert::IsTrue(setInputCalled);
         Assert::IsTrue(setValueCalled);
         Assert::IsTrue(setInputCountCalled);
@@ -466,35 +551,32 @@ public:
         auto canvasStrokeStyle = Make<CanvasStrokeStyle>();
         canvasStrokeStyle->put_LineJoin(CanvasLineJoin::MiterOrBevel);
 
-        int drawLineCount = 0;
+        int expectedDrawLineCount = isColorOverload ? 2 : 1;
 
-        f.DeviceContext->MockDrawLine =
+        f.DeviceContext->DrawLineMethod.SetExpectedCalls(expectedDrawLineCount,
             [&](D2D1_POINT_2F p0, D2D1_POINT_2F p1, ID2D1Brush* brush, float strokeWidth, ID2D1StrokeStyle* strokeStyle)
-        {
-            Assert::AreEqual(expectedP0.X, p0.x);
-            Assert::AreEqual(expectedP0.Y, p0.y);
-            Assert::AreEqual(expectedP1.X, p1.x);
-            Assert::AreEqual(expectedP1.Y, p1.y);
-            brushValidator.Check(brush);
-            Assert::AreEqual(expectedStrokeWidth, strokeWidth);
-            if (expectStrokeStyle)
             {
-                Assert::IsNotNull(strokeStyle);
-                Assert::AreEqual(D2D1_LINE_JOIN_MITER_OR_BEVEL, f.DeviceContext->m_factory->m_lineJoin);
-            }
-            else
-            {
-                Assert::IsNull(strokeStyle);
-            }
-            drawLineCount++;
-        };
+                Assert::AreEqual(expectedP0.X, p0.x);
+                Assert::AreEqual(expectedP0.Y, p0.y);
+                Assert::AreEqual(expectedP1.X, p1.x);
+                Assert::AreEqual(expectedP1.Y, p1.y);
+                brushValidator.Check(brush);
+                Assert::AreEqual(expectedStrokeWidth, strokeWidth);
+                if (expectStrokeStyle)
+                {
+                    Assert::IsNotNull(strokeStyle);
+                    Assert::AreEqual(D2D1_LINE_JOIN_MITER_OR_BEVEL, f.DeviceContext->m_factory->m_lineJoin);
+                }
+                else
+                {
+                    Assert::IsNull(strokeStyle);
+                }
+            });
 
         callDrawFunction(f, expectedP0, expectedP1, canvasStrokeStyle.Get());
-
-        Assert::AreEqual(isColorOverload ? 2 : 1, drawLineCount);
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineWithBrush)
     {
         TestDrawLine(false, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -506,7 +588,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawLineWithBrush(Vector2{}, Vector2{}, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineAtCoordsWithBrush)
     {
         TestDrawLine(false, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -518,7 +600,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawLineAtCoordsWithBrush(0, 0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineWithColor)
     {
         TestDrawLine(true, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -528,7 +610,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineAtCoordsWithColor)
     {
         TestDrawLine(true, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -538,7 +620,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineWithBrushAndStrokeWidth)
     {
         TestDrawLine(false, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -550,7 +632,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawLineWithBrushAndStrokeWidth(Vector2{}, Vector2{}, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineAtCoordsWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineAtCoordsWithBrushAndStrokeWidth)
     {
         TestDrawLine(false, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -562,7 +644,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawLineAtCoordsWithBrushAndStrokeWidth(0, 0, 0, 0, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineWithColorAndStrokeWidth)
     {
         TestDrawLine(true, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -572,7 +654,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineAtCoordsWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineAtCoordsWithColorAndStrokeWidth)
     {
         TestDrawLine(true, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -582,7 +664,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawLine(false, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -594,7 +676,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawLineWithBrushAndStrokeWidthAndStrokeStyle(Vector2{}, Vector2{}, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawLine(false, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -606,7 +688,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawLineAtCoordsWithBrushAndStrokeWidthAndStrokeStyle(0, 0, 0, 0, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawLine(true, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -616,7 +698,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawLineAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawLineAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawLine(true, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 p0, Vector2 p1, CanvasStrokeStyle* strokeStyle)
@@ -642,35 +724,32 @@ public:
         auto canvasStrokeStyle = Make<CanvasStrokeStyle>();
         canvasStrokeStyle->put_LineJoin(CanvasLineJoin::MiterOrBevel);
 
-        int drawRectangleCount = 0;
+        int expectedDrawRectangleCount = isColorOverload ? 2 : 1;
 
-        f.DeviceContext->MockDrawRectangle =
+        f.DeviceContext->DrawRectangleMethod.SetExpectedCalls(expectedDrawRectangleCount,
             [&](D2D1_RECT_F const* rect, ID2D1Brush* brush, float strokeWidth, ID2D1StrokeStyle* strokeStyle)
-        {
-            Assert::AreEqual(expectedRect.X, rect->left);
-            Assert::AreEqual(expectedRect.Y, rect->top);
-            Assert::AreEqual(expectedRect.X + expectedRect.Width, rect->right);
-            Assert::AreEqual(expectedRect.Y + expectedRect.Height, rect->bottom);
-            brushValidator.Check(brush);
-            Assert::AreEqual(expectedStrokeWidth, strokeWidth);
-            if (expectStrokeStyle)
             {
-                Assert::IsNotNull(strokeStyle);
-                Assert::AreEqual(D2D1_LINE_JOIN_MITER_OR_BEVEL, f.DeviceContext->m_factory->m_lineJoin);
-            }
-            else
-            {
-                Assert::IsNull(strokeStyle);
-            }
-            drawRectangleCount++;
-        };
+                Assert::AreEqual(expectedRect.X, rect->left);
+                Assert::AreEqual(expectedRect.Y, rect->top);
+                Assert::AreEqual(expectedRect.X + expectedRect.Width, rect->right);
+                Assert::AreEqual(expectedRect.Y + expectedRect.Height, rect->bottom);
+                brushValidator.Check(brush);
+                Assert::AreEqual(expectedStrokeWidth, strokeWidth);
+                if (expectStrokeStyle)
+                {
+                    Assert::IsNotNull(strokeStyle);
+                    Assert::AreEqual(D2D1_LINE_JOIN_MITER_OR_BEVEL, f.DeviceContext->m_factory->m_lineJoin);
+                }
+                else
+                {
+                    Assert::IsNull(strokeStyle);
+                }
+            });
 
         callDrawFunction(f, expectedRect, canvasStrokeStyle.Get());
-
-        Assert::AreEqual(isColorOverload ? 2 : 1, drawRectangleCount);
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleWithBrush)
     {
         TestDrawRectangle(false, 1, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -682,7 +761,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRectangleWithBrush(Rect{}, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleAtCoordsWithBrush)
     {
         TestDrawRectangle(false, 1, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -694,7 +773,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRectangleAtCoordsWithBrush(0, 0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleWithColor)
     {
         TestDrawRectangle(true, 1, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -704,7 +783,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleAtCoordsWithColor)
     {
         TestDrawRectangle(true, 1, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -714,7 +793,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleWithBrushAndStrokeWidth)
     {
         TestDrawRectangle(false, 123, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -726,7 +805,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRectangleWithBrushAndStrokeWidth(Rect{}, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleAtCoordsWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleAtCoordsWithBrushAndStrokeWidth)
     {
         TestDrawRectangle(false, 123, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -738,7 +817,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRectangleAtCoordsWithBrushAndStrokeWidth(0, 0, 0, 0, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleWithColorAndStrokeWidth)
     {
         TestDrawRectangle(true, 123, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -748,7 +827,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleAtCoordsWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleAtCoordsWithColorAndStrokeWidth)
     {
         TestDrawRectangle(true, 123, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -758,7 +837,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawRectangle(false, 123, true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -770,7 +849,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRectangleWithBrushAndStrokeWidthAndStrokeStyle(Rect{}, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawRectangle(false, 123, true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -782,7 +861,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRectangleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle(0, 0, 0, 0, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawRectangle(true, 123, true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -792,7 +871,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRectangleAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRectangleAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawRectangle(true, 123, true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, CanvasStrokeStyle* strokeStyle)
@@ -815,25 +894,22 @@ public:
 
         Rect expectedRect{ 1.0f, 2.0f, 3.0f, 4.0f };
 
-        int fillRectangleCount = 0;
+        int expectedFillRectangleCount = isColorOverload ? 2 : 1;
 
-        f.DeviceContext->MockFillRectangle =
+        f.DeviceContext->FillRectangleMethod.SetExpectedCalls(expectedFillRectangleCount,
             [&](D2D1_RECT_F const* rect, ID2D1Brush* brush)
-        {
-            Assert::AreEqual(expectedRect.X, rect->left);
-            Assert::AreEqual(expectedRect.Y, rect->top);
-            Assert::AreEqual(expectedRect.X + expectedRect.Width, rect->right);
-            Assert::AreEqual(expectedRect.Y + expectedRect.Height, rect->bottom);
-            brushValidator.Check(brush);
-            fillRectangleCount++;
-        };
+            {
+                Assert::AreEqual(expectedRect.X, rect->left);
+                Assert::AreEqual(expectedRect.Y, rect->top);
+                Assert::AreEqual(expectedRect.X + expectedRect.Width, rect->right);
+                Assert::AreEqual(expectedRect.Y + expectedRect.Height, rect->bottom);
+                brushValidator.Check(brush);
+            });
 
         callDrawFunction(f, expectedRect);
-
-        Assert::AreEqual(isColorOverload ? 2 : 1, fillRectangleCount);
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillRectangleWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_FillRectangleWithBrush)
     {
         TestFillRectangle(false,
             [](CanvasDrawingSessionFixture const& f, Rect rect)
@@ -845,7 +921,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->FillRectangleWithBrush(Rect{}, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillRectangleAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_FillRectangleAtCoordsWithBrush)
     {
         TestFillRectangle(false,
             [](CanvasDrawingSessionFixture const& f, Rect rect)
@@ -857,7 +933,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->FillRectangleAtCoordsWithBrush(0, 0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillRectangleWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_FillRectangleWithColor)
     {
         TestFillRectangle(true,
             [](CanvasDrawingSessionFixture const& f, Rect rect)
@@ -867,7 +943,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillRectangleAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_FillRectangleAtCoordsWithColor)
     {
         TestFillRectangle(true,
             [](CanvasDrawingSessionFixture const& f, Rect rect)
@@ -895,37 +971,34 @@ public:
         auto canvasStrokeStyle = Make<CanvasStrokeStyle>();
         canvasStrokeStyle->put_LineJoin(CanvasLineJoin::MiterOrBevel);
 
-        int drawRoundedRectangleCount = 0;
+        int expectedDrawRoundedRectangleCount = isColorOverload ? 2 : 1;
 
-        f.DeviceContext->MockDrawRoundedRectangle =
+        f.DeviceContext->DrawRoundedRectangleMethod.SetExpectedCalls(expectedDrawRoundedRectangleCount,
             [&](D2D1_ROUNDED_RECT const* rect, ID2D1Brush* brush, float strokeWidth, ID2D1StrokeStyle* strokeStyle)
-        {
-            Assert::AreEqual(expectedRect.X, rect->rect.left);
-            Assert::AreEqual(expectedRect.Y, rect->rect.top);
-            Assert::AreEqual(expectedRect.X + expectedRect.Width, rect->rect.right);
-            Assert::AreEqual(expectedRect.Y + expectedRect.Height, rect->rect.bottom);
-            Assert::AreEqual(expectedRadiusX, rect->radiusX);
-            Assert::AreEqual(expectedRadiusY, rect->radiusY);
-            brushValidator.Check(brush);
-            Assert::AreEqual(expectedStrokeWidth, strokeWidth);
-            if (expectStrokeStyle)
             {
-                Assert::IsNotNull(strokeStyle);
-                Assert::AreEqual(D2D1_LINE_JOIN_MITER_OR_BEVEL, f.DeviceContext->m_factory->m_lineJoin);
-            }
-            else
-            {
-                Assert::IsNull(strokeStyle);
-            }
-            drawRoundedRectangleCount++;
-        };
+                Assert::AreEqual(expectedRect.X, rect->rect.left);
+                Assert::AreEqual(expectedRect.Y, rect->rect.top);
+                Assert::AreEqual(expectedRect.X + expectedRect.Width, rect->rect.right);
+                Assert::AreEqual(expectedRect.Y + expectedRect.Height, rect->rect.bottom);
+                Assert::AreEqual(expectedRadiusX, rect->radiusX);
+                Assert::AreEqual(expectedRadiusY, rect->radiusY);
+                brushValidator.Check(brush);
+                Assert::AreEqual(expectedStrokeWidth, strokeWidth);
+                if (expectStrokeStyle)
+                {
+                    Assert::IsNotNull(strokeStyle);
+                    Assert::AreEqual(D2D1_LINE_JOIN_MITER_OR_BEVEL, f.DeviceContext->m_factory->m_lineJoin);
+                }
+                else
+                {
+                    Assert::IsNull(strokeStyle);
+                }
+            });
 
         callDrawFunction(f, expectedRect, expectedRadiusX, expectedRadiusY, canvasStrokeStyle.Get());
-
-        Assert::AreEqual(isColorOverload ? 2 : 1, drawRoundedRectangleCount);
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleWithBrush)
     {
         TestDrawRoundedRectangle(false, 1, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -937,7 +1010,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRoundedRectangleWithBrush(Rect{}, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithBrush)
     {
         TestDrawRoundedRectangle(false, 1, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -949,7 +1022,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRoundedRectangleAtCoordsWithBrush(0, 0, 0, 0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleWithColor)
     {
         TestDrawRoundedRectangle(true, 1, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -959,7 +1032,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithColor)
     {
         TestDrawRoundedRectangle(true, 1, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -969,7 +1042,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleWithBrushAndStrokeWidth)
     {
         TestDrawRoundedRectangle(false, 123, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -981,7 +1054,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRoundedRectangleWithBrushAndStrokeWidth(Rect{}, 0, 0, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithBrushAndStrokeWidth)
     {
         TestDrawRoundedRectangle(false, 123, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -993,7 +1066,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRoundedRectangleAtCoordsWithBrushAndStrokeWidth(0, 0, 0, 0, 0, 0, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleWithColorAndStrokeWidth)
     {
         TestDrawRoundedRectangle(true, 123, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -1003,7 +1076,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithColorAndStrokeWidth)
     {
         TestDrawRoundedRectangle(true, 123, false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -1013,7 +1086,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawRoundedRectangle(false, 123, true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -1025,7 +1098,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRoundedRectangleWithBrushAndStrokeWidthAndStrokeStyle(Rect{}, 0, 0, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawRoundedRectangle(false, 123, true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -1037,7 +1110,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawRoundedRectangleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle(0, 0, 0, 0, 0, 0, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawRoundedRectangle(true, 123, true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -1047,7 +1120,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawRoundedRectangleAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawRoundedRectangle(true, 123, true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry, CanvasStrokeStyle* strokeStyle)
@@ -1072,27 +1145,24 @@ public:
         float expectedRadiusX = 5;
         float expectedRadiusY = 6;
 
-        int fillRectangleCount = 0;
+        int expectedFillRoundedRectangleCount = isColorOverload ? 2 : 1;
 
-        f.DeviceContext->MockFillRoundedRectangle =
+        f.DeviceContext->FillRoundedRectangleMethod.SetExpectedCalls(expectedFillRoundedRectangleCount,
             [&](D2D1_ROUNDED_RECT const* rect, ID2D1Brush* brush)
-        {
-            Assert::AreEqual(expectedRect.X, rect->rect.left);
-            Assert::AreEqual(expectedRect.Y, rect->rect.top);
-            Assert::AreEqual(expectedRect.X + expectedRect.Width, rect->rect.right);
-            Assert::AreEqual(expectedRect.Y + expectedRect.Height, rect->rect.bottom);
-            Assert::AreEqual(expectedRadiusX, rect->radiusX);
-            Assert::AreEqual(expectedRadiusY, rect->radiusY);
-            brushValidator.Check(brush);
-            fillRectangleCount++;
-        };
+            {
+                Assert::AreEqual(expectedRect.X, rect->rect.left);
+                Assert::AreEqual(expectedRect.Y, rect->rect.top);
+                Assert::AreEqual(expectedRect.X + expectedRect.Width, rect->rect.right);
+                Assert::AreEqual(expectedRect.Y + expectedRect.Height, rect->rect.bottom);
+                Assert::AreEqual(expectedRadiusX, rect->radiusX);
+                Assert::AreEqual(expectedRadiusY, rect->radiusY);
+                brushValidator.Check(brush);
+            });
 
         callDrawFunction(f, expectedRect, expectedRadiusX, expectedRadiusY);
-
-        Assert::AreEqual(isColorOverload ? 2 : 1, fillRectangleCount);
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillRoundedRectangleWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_FillRoundedRectangleWithBrush)
     {
         TestFillRoundedRectangle(false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry)
@@ -1104,7 +1174,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->FillRoundedRectangleWithBrush(Rect{}, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillRoundedRectangleAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_FillRoundedRectangleAtCoordsWithBrush)
     {
         TestFillRoundedRectangle(false,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry)
@@ -1116,7 +1186,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->FillRoundedRectangleAtCoordsWithBrush(0, 0, 0, 0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillRoundedRectangleWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_FillRoundedRectangleWithColor)
     {
         TestFillRoundedRectangle(true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry)
@@ -1126,7 +1196,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillRoundedRectangleAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_FillRoundedRectangleAtCoordsWithColor)
     {
         TestFillRoundedRectangle(true,
             [](CanvasDrawingSessionFixture const& f, Rect rect, float rx, float ry)
@@ -1152,35 +1222,32 @@ public:
         auto canvasStrokeStyle = Make<CanvasStrokeStyle>();
         canvasStrokeStyle->put_LineJoin(CanvasLineJoin::MiterOrBevel);
 
-        int drawEllipseCount = 0;
+        int expectedDrawEllipseCount = isColorOverload ? 2 : 1;
 
-        f.DeviceContext->MockDrawEllipse =
+        f.DeviceContext->DrawEllipseMethod.SetExpectedCalls(expectedDrawEllipseCount,
             [&](D2D1_ELLIPSE const* ellipse, ID2D1Brush* brush, float strokeWidth, ID2D1StrokeStyle* strokeStyle)
-        {
-            Assert::AreEqual(expectedPoint.X, ellipse->point.x);
-            Assert::AreEqual(expectedPoint.Y, ellipse->point.y);
-            Assert::AreEqual(expectedRadiusX, ellipse->radiusX);
-            Assert::AreEqual(expectedRadiusY, ellipse->radiusY);
-            brushValidator.Check(brush);
-            Assert::AreEqual(expectedStrokeWidth, strokeWidth);
-            if (expectStrokeStyle)
             {
-                Assert::IsNotNull(strokeStyle);
-                Assert::AreEqual(D2D1_LINE_JOIN_MITER_OR_BEVEL, f.DeviceContext->m_factory->m_lineJoin);
-            }
-            else
-            {
-                Assert::IsNull(strokeStyle);
-            }
-            drawEllipseCount++;
-        };
+                Assert::AreEqual(expectedPoint.X, ellipse->point.x);
+                Assert::AreEqual(expectedPoint.Y, ellipse->point.y);
+                Assert::AreEqual(expectedRadiusX, ellipse->radiusX);
+                Assert::AreEqual(expectedRadiusY, ellipse->radiusY);
+                brushValidator.Check(brush);
+                Assert::AreEqual(expectedStrokeWidth, strokeWidth);
+                if (expectStrokeStyle)
+                {
+                    Assert::IsNotNull(strokeStyle);
+                    Assert::AreEqual(D2D1_LINE_JOIN_MITER_OR_BEVEL, f.DeviceContext->m_factory->m_lineJoin);
+                }
+                else
+                {
+                    Assert::IsNull(strokeStyle);
+                }
+            });
 
         callDrawFunction(f, expectedPoint, canvasStrokeStyle.Get());
-
-        Assert::AreEqual(isColorOverload ? 2 : 1, drawEllipseCount);
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseWithBrush)
     {
         TestDrawEllipse(false, 23, 42, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1192,7 +1259,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawEllipseWithBrush(Vector2{}, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseAtCoordsWithBrush)
     {
         TestDrawEllipse(false, 23, 42, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1204,7 +1271,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawEllipseAtCoordsWithBrush(0, 0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseWithColor)
     {
         TestDrawEllipse(true, 23, 42, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1214,7 +1281,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseAtCoordsWithColor)
     {
         TestDrawEllipse(true, 23, 42, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1224,7 +1291,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseWithBrushAndStrokeWidth)
     {
         TestDrawEllipse(false, 23, 42, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1236,7 +1303,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawEllipseWithBrushAndStrokeWidth(Vector2{}, 0, 0, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseAtCoordsWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseAtCoordsWithBrushAndStrokeWidth)
     {
         TestDrawEllipse(false, 23, 42, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1248,7 +1315,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawEllipseAtCoordsWithBrushAndStrokeWidth(0, 0, 0, 0, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseWithColorAndStrokeWidth)
     {
         TestDrawEllipse(true, 23, 42, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1258,7 +1325,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseAtCoordsWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseAtCoordsWithColorAndStrokeWidth)
     {
         TestDrawEllipse(true, 23, 42, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1268,7 +1335,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawEllipse(false, 23, 42, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1280,7 +1347,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawEllipseWithBrushAndStrokeWidthAndStrokeStyle(Vector2{}, 0, 0, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawEllipse(false, 23, 42, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1292,7 +1359,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawEllipseAtCoordsWithBrushAndStrokeWidthAndStrokeStyle(0, 0, 0, 0, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawEllipse(true, 23, 42, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1302,7 +1369,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawEllipseAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawEllipseAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawEllipse(true, 23, 42, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1325,25 +1392,22 @@ public:
 
         Vector2 expectedPoint{ 1.0f, 2.0f };
 
-        int fillEllipseCount = 0;
+        int expectedFillEllipseCount = isColorOverload ? 2 : 1;
 
-        f.DeviceContext->MockFillEllipse =
+        f.DeviceContext->FillEllipseMethod.SetExpectedCalls(expectedFillEllipseCount,
             [&](D2D1_ELLIPSE const* ellipse, ID2D1Brush* brush)
-        {
-            Assert::AreEqual(expectedPoint.X, ellipse->point.x);
-            Assert::AreEqual(expectedPoint.Y, ellipse->point.y);
-            Assert::AreEqual(expectedRadiusX, ellipse->radiusX);
-            Assert::AreEqual(expectedRadiusY, ellipse->radiusY);
-            brushValidator.Check(brush);
-            fillEllipseCount++;
-        };
+            {
+                Assert::AreEqual(expectedPoint.X, ellipse->point.x);
+                Assert::AreEqual(expectedPoint.Y, ellipse->point.y);
+                Assert::AreEqual(expectedRadiusX, ellipse->radiusX);
+                Assert::AreEqual(expectedRadiusY, ellipse->radiusY);
+                brushValidator.Check(brush);
+            });
 
         callDrawFunction(f, expectedPoint);
-
-        Assert::AreEqual(isColorOverload ? 2 : 1, fillEllipseCount);
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillEllipseWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_FillEllipseWithBrush)
     {
         TestFillEllipse(false, 23, 42,
             [](CanvasDrawingSessionFixture const& f, Vector2 point)
@@ -1355,7 +1419,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->FillEllipseWithBrush(Vector2{}, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillEllipseAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_FillEllipseAtCoordsWithBrush)
     {
         TestFillEllipse(false, 23, 42,
             [](CanvasDrawingSessionFixture const& f, Vector2 point)
@@ -1367,7 +1431,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->FillEllipseAtCoordsWithBrush(0, 0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillEllipseWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_FillEllipseWithColor)
     {
         TestFillEllipse(true, 23, 42,
             [](CanvasDrawingSessionFixture const& f, Vector2 point)
@@ -1377,7 +1441,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillEllipseAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_FillEllipseAtCoordsWithColor)
     {
         TestFillEllipse(true, 23, 42,
             [](CanvasDrawingSessionFixture const& f, Vector2 point)
@@ -1392,7 +1456,7 @@ public:
     // DrawCircle
     //
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleWithBrush)
     {
         TestDrawEllipse(false, 23, 23, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1404,7 +1468,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawCircleWithBrush(Vector2{}, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleAtCoordsWithBrush)
     {
         TestDrawEllipse(false, 23, 23, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1416,7 +1480,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawCircleAtCoordsWithBrush(0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleWithColor)
     {
         TestDrawEllipse(true, 23, 23, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1426,7 +1490,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleAtCoordsWithColor)
     {
         TestDrawEllipse(true, 23, 23, 1, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1436,7 +1500,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleWithBrushAndStrokeWidth)
     {
         TestDrawEllipse(false, 23, 23, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1448,7 +1512,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawCircleWithBrushAndStrokeWidth(Vector2{}, 0, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleAtCoordsWithBrushAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleAtCoordsWithBrushAndStrokeWidth)
     {
         TestDrawEllipse(false, 23, 23, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1460,7 +1524,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawCircleAtCoordsWithBrushAndStrokeWidth(0, 0, 0, nullptr, 0));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleWithColorAndStrokeWidth)
     {
         TestDrawEllipse(true, 23, 23, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1470,7 +1534,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleAtCoordsWithColorAndStrokeWidth)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleAtCoordsWithColorAndStrokeWidth)
     {
         TestDrawEllipse(true, 23, 23, 123, false,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1480,7 +1544,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawEllipse(false, 23, 23, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1492,7 +1556,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawCircleWithBrushAndStrokeWidthAndStrokeStyle(Vector2{}, 0, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle)
     {
         TestDrawEllipse(false, 23, 23, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1504,7 +1568,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawCircleAtCoordsWithBrushAndStrokeWidthAndStrokeStyle(0, 0, 0, nullptr, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawEllipse(true, 23, 23, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1514,7 +1578,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawCircleAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawCircleAtCoordsWithColorAndStrokeWidthAndStrokeStyle)
     {
         TestDrawEllipse(true, 23, 23, 123, true,
             [](CanvasDrawingSessionFixture const& f, Vector2 point, CanvasStrokeStyle* strokeStyle)
@@ -1529,7 +1593,7 @@ public:
     // FillCircle
     //
 
-    TEST_METHOD(CanvasDrawingSession_FillCircleWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_FillCircleWithBrush)
     {
         TestFillEllipse(false, 23, 23,
             [](CanvasDrawingSessionFixture const& f, Vector2 point)
@@ -1541,7 +1605,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->FillCircleWithBrush(Vector2{}, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillCircleAtCoordsWithBrush)
+    TEST_METHOD_EX(CanvasDrawingSession_FillCircleAtCoordsWithBrush)
     {
         TestFillEllipse(false, 23, 23,
             [](CanvasDrawingSessionFixture const& f, Vector2 point)
@@ -1553,7 +1617,7 @@ public:
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->FillCircleAtCoordsWithBrush(0, 0, 0, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillCircleWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_FillCircleWithColor)
     {
         TestFillEllipse(true, 23, 23,
             [](CanvasDrawingSessionFixture const& f, Vector2 point)
@@ -1563,7 +1627,7 @@ public:
         });
     }
 
-    TEST_METHOD(CanvasDrawingSession_FillCircleAtCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_FillCircleAtCoordsWithColor)
     {
         TestFillEllipse(true, 23, 23,
             [](CanvasDrawingSessionFixture const& f, Vector2 point)
@@ -1574,7 +1638,7 @@ public:
     }
 
 
-    TEST_METHOD(CanvasDrawingSession_StateGettersWithNull)
+    TEST_METHOD_EX(CanvasDrawingSession_StateGettersWithNull)
     {
         CanvasDrawingSessionFixture f;
 
@@ -1585,157 +1649,113 @@ public:
         Assert::AreEqual(E_INVALIDARG, f.DS->get_Units(nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_StateProperties)
+    TEST_METHOD_EX(CanvasDrawingSession_StateProperties)
     {
         CanvasDrawingSessionFixture f;
 
         {
-            bool propertyFunctionCalled = false;
-            f.DeviceContext->MockSetAntialiasMode =
-                [&](const D2D1_ANTIALIAS_MODE m)
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                Assert::AreEqual(m, D2D1_ANTIALIAS_MODE_ALIASED);
-            };
+            f.DeviceContext->SetAntialiasModeMethod.SetExpectedCalls(1,
+                [](const D2D1_ANTIALIAS_MODE m)
+                {
+                    Assert::AreEqual(m, D2D1_ANTIALIAS_MODE_ALIASED);
+                });
             ThrowIfFailed(f.DS->put_Antialiasing(CanvasAntialiasing_Aliased));
-            Assert::IsTrue(propertyFunctionCalled);
         }
 
         {
-            bool propertyFunctionCalled = false;
-            f.DeviceContext->MockGetAntialiasMode =
-                [&]
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                return D2D1_ANTIALIAS_MODE_ALIASED;
-            };
+            f.DeviceContext->GetAntialiasModeMethod.SetExpectedCalls(1,
+                [] { return D2D1_ANTIALIAS_MODE_ALIASED; });
+
             CanvasAntialiasing antialiasMode;
             ThrowIfFailed(f.DS->get_Antialiasing(&antialiasMode));
-            Assert::IsTrue(propertyFunctionCalled);
             Assert::AreEqual(CanvasAntialiasing_Aliased, antialiasMode);
         }
 
         {
-            bool propertyFunctionCalled = false;
-            f.DeviceContext->MockSetPrimitiveBlend =
-                [&](const D2D1_PRIMITIVE_BLEND b)
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                Assert::AreEqual(b, D2D1_PRIMITIVE_BLEND_MIN);
-            };
+            f.DeviceContext->SetPrimitiveBlendMethod.SetExpectedCalls(1,
+                [](const D2D1_PRIMITIVE_BLEND b)
+                {
+                    Assert::AreEqual(b, D2D1_PRIMITIVE_BLEND_MIN);
+                });
+
             ThrowIfFailed(f.DS->put_Blend(CanvasBlend_Min));
-            Assert::IsTrue(propertyFunctionCalled);
         }
 
         {
-            bool propertyFunctionCalled = false;
-            f.DeviceContext->MockGetPrimitiveBlend =
-                [&]
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                return D2D1_PRIMITIVE_BLEND_COPY;
-            };
+            f.DeviceContext->GetPrimitiveBlendMethod.SetExpectedCalls(1,
+                [] { return D2D1_PRIMITIVE_BLEND_COPY; });
+
             CanvasBlend blend;
             ThrowIfFailed(f.DS->get_Blend(&blend));
-            Assert::IsTrue(propertyFunctionCalled);
             Assert::AreEqual(CanvasBlend_Copy, blend);
         }
 
         {
-            bool propertyFunctionCalled = false;
-            f.DeviceContext->MockSetTextAntialiasMode =
+            f.DeviceContext->SetTextAntialiasModeMethod.SetExpectedCalls(1,
                 [&](const D2D1_TEXT_ANTIALIAS_MODE m)
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                Assert::AreEqual(m, D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
-            };
+                {
+                    Assert::AreEqual(m, D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+                });
+
             ThrowIfFailed(f.DS->put_TextAntialiasing(CanvasTextAntialiasing_ClearType));
-            Assert::IsTrue(propertyFunctionCalled);
         }
 
         {
-            bool propertyFunctionCalled = false;
-            f.DeviceContext->MockGetTextAntialiasMode =
-                [&]
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                return D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE;
-            };
+            f.DeviceContext->GetTextAntialiasModeMethod.SetExpectedCalls(1,
+                [] { return D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE; });
+
             CanvasTextAntialiasing textAntialiasing;
             ThrowIfFailed(f.DS->get_TextAntialiasing(&textAntialiasing));
-            Assert::IsTrue(propertyFunctionCalled);
             Assert::AreEqual(CanvasTextAntialiasing_Grayscale, textAntialiasing);
         }
 
         {
-            bool propertyFunctionCalled = false;
             Numerics::Matrix3x2 matrix = { 1, 2, 3, 5, 8, 13 };
-            f.DeviceContext->MockSetTransform =
+            f.DeviceContext->SetTransformMethod.SetExpectedCalls(1,
                 [&](const D2D1_MATRIX_3X2_F* m)
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
+                {
+                    const D2D1_MATRIX_3X2_F* asD2DMatrix = reinterpret_cast<D2D1_MATRIX_3X2_F*>(&matrix);
+                    Assert::AreEqual(*asD2DMatrix, *m);
+                });
 
-                const D2D1_MATRIX_3X2_F* asD2DMatrix = reinterpret_cast<D2D1_MATRIX_3X2_F*>(&matrix);
-                Assert::AreEqual(*asD2DMatrix, *m);
-            };
             ThrowIfFailed(f.DS->put_Transform(matrix));
-            Assert::IsTrue(propertyFunctionCalled);
         }
 
         {
-            bool propertyFunctionCalled = false;
             Numerics::Matrix3x2 matrix = { 13, 8, 5, 3, 2, 1 };
-            f.DeviceContext->MockGetTransform =
+            f.DeviceContext->GetTransformMethod.SetExpectedCalls(1,
                 [&](D2D1_MATRIX_3X2_F* m)
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                const D2D1_MATRIX_3X2_F* asD2DMatrix = reinterpret_cast<D2D1_MATRIX_3X2_F*>(&matrix);
-                *m = *asD2DMatrix;
-            };
+                {
+                    const D2D1_MATRIX_3X2_F* asD2DMatrix = reinterpret_cast<D2D1_MATRIX_3X2_F*>(&matrix);
+                    *m = *asD2DMatrix;
+                });
+
             Numerics::Matrix3x2 transform;
             ThrowIfFailed(f.DS->get_Transform(&transform));
-            Assert::IsTrue(propertyFunctionCalled);
             Assert::AreEqual(matrix, transform);
         }
 
         {
-            bool propertyFunctionCalled = false;
-            f.DeviceContext->MockSetUnitMode =
-                [&](const D2D1_UNIT_MODE m)
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                Assert::AreEqual(m, D2D1_UNIT_MODE_PIXELS);
-            };
+            f.DeviceContext->SetUnitModeMethod.SetExpectedCalls(1,
+                [](const D2D1_UNIT_MODE m)
+                {
+                    Assert::AreEqual(m, D2D1_UNIT_MODE_PIXELS);
+                });
+
             ThrowIfFailed(f.DS->put_Units(CanvasUnits_Pixels));
-            Assert::IsTrue(propertyFunctionCalled);
         }
 
         {
-            bool propertyFunctionCalled = false;
-            f.DeviceContext->MockGetUnitMode =
-                [&]
-            {
-                Assert::IsFalse(propertyFunctionCalled);
-                propertyFunctionCalled = true;
-                return D2D1_UNIT_MODE_PIXELS;
-            };
+            f.DeviceContext->GetUnitModeMethod.SetExpectedCalls(1,
+                [] { return D2D1_UNIT_MODE_PIXELS; });
+
             CanvasUnits units;
             ThrowIfFailed(f.DS->get_Units(&units));
-            Assert::IsTrue(propertyFunctionCalled);
             Assert::AreEqual(CanvasUnits_Pixels, units);
         }
     }
 
-    TEST_METHOD(CanvasDrawingSession_SiSOffsetIsHiddenFromTransformProperty)
+    TEST_METHOD_EX(CanvasDrawingSession_SiSOffsetIsHiddenFromTransformProperty)
     {
         ComPtr<StubD2DDeviceContextWithGetFactory> deviceContext = 
             Make<StubD2DDeviceContextWithGetFactory>();
@@ -1754,17 +1774,17 @@ public:
             adapter->m_offset.x,
             adapter->m_offset.y);
 
-        deviceContext->MockSetTransform =
+        deviceContext->SetTransformMethod.AllowAnyCall(
             [&](const D2D1_MATRIX_3X2_F* m)
             {
                 nativeTransform = *m;
-            };
+            });
 
-        deviceContext->MockGetTransform =
+        deviceContext->GetTransformMethod.AllowAnyCall(
             [&](D2D1_MATRIX_3X2_F* m)
             {
                 *m = nativeTransform;
-            };
+            });
         
         Numerics::Matrix3x2 transform;
         ThrowIfFailed(drawingSession->get_Transform(&transform));
@@ -1785,7 +1805,7 @@ public:
         Assert::AreEqual(expectedTransform, wrappedResourceTransform);
     }
 
-    TEST_METHOD(CanvasDrawingSession_get_Device)
+    TEST_METHOD_EX(CanvasDrawingSession_get_Device)
     {
         //
         // In the interop case, where NULL is passed to the drawing session
@@ -1806,15 +1826,6 @@ public:
         ComPtr<StubD2DFactoryWithCreateStrokeStyle> d2dFactory = Make<StubD2DFactoryWithCreateStrokeStyle>();
         d2dDeviceContext->m_factory = d2dFactory;
 
-        bool getDeviceCalled = false;
-        d2dDeviceContext->MockGetDevice =
-            [&](ID2D1Device** d2dDevice)
-            {
-                getDeviceCalled = true;
-                ComPtr<StubD2DDevice> stubDevice = Make<StubD2DDevice>();
-                stubDevice.CopyTo(d2dDevice);
-            };
-
         ComPtr<StubCanvasDevice> stubCanvasDevice = Make<StubCanvasDevice>();
 
         struct TestCase
@@ -1828,13 +1839,25 @@ public:
             { stubCanvasDevice.Get(), false }
         };
 
-        for (size_t i = 0; i < _countof(testCases); ++i)
+        for (auto& testCase : testCases)
         {
-            getDeviceCalled = false;
+            if (testCase.ExpectGetDeviceCalled)
+            {
+                d2dDeviceContext->GetDeviceMethod.SetExpectedCalls(1,
+                    [&](ID2D1Device** d2dDevice)
+                    {
+                        ComPtr<StubD2DDevice> stubDevice = Make<StubD2DDevice>();
+                        stubDevice.CopyTo(d2dDevice);
+                    });
+            }
+            else
+            {
+                d2dDeviceContext->GetDeviceMethod.SetExpectedCalls(0);
+            }
 
             auto manager = std::make_shared<CanvasDrawingSessionManager>();
-            ComPtr<CanvasDrawingSession> drawingSession = manager->Create(
-                testCases[i].ManagerDevice,
+            auto drawingSession = manager->Create(
+                testCase.ManagerDevice,
                 d2dDeviceContext.Get(),
                 std::make_shared<StubCanvasDrawingSessionAdapter>());
 
@@ -1842,22 +1865,49 @@ public:
             ThrowIfFailed(drawingSession->get_Device(&deviceVerify));
 
             Assert::IsNotNull(deviceVerify.Get());
-            Assert::AreEqual(testCases[i].ExpectGetDeviceCalled, getDeviceCalled);
 
-            if (testCases[i].ManagerDevice)
+            if (testCase.ManagerDevice)
             {
-                Assert::AreEqual(testCases[i].ManagerDevice, deviceVerify.Get());
+                Assert::AreEqual(testCase.ManagerDevice, deviceVerify.Get());
             }
 
             // Do get_Device again. Even in the interop case, it should never 
             // cause GetDevice to be called again.
-            getDeviceCalled = false;
             ComPtr<ICanvasDevice> deviceReverify;
             ThrowIfFailed(drawingSession->get_Device(&deviceReverify));
 
-            Assert::IsFalse(getDeviceCalled);
             Assert::AreEqual(deviceVerify.Get(), deviceReverify.Get());
         }
+    }
+
+    TEST_METHOD_EX(CanvasDrawingSession_DpiProperties)
+    {
+        const float dpi = 144;
+
+        auto deviceContext = Make<StubD2DDeviceContextWithGetFactory>();
+        auto manager = std::make_shared<CanvasDrawingSessionManager>();
+        auto adapter = std::make_shared<CanvasDrawingSessionAdapter_ChangeableOffset>();
+        auto drawingSession = manager->Create(deviceContext.Get(), adapter);
+
+        deviceContext->GetDpiMethod.SetExpectedCalls(3, [&](float* dpiX, float* dpiY)
+        {
+            *dpiX = dpi;
+            *dpiY = dpi;
+        });
+
+        float actualDpi = 0;
+        ThrowIfFailed(drawingSession->get_Dpi(&actualDpi));
+        Assert::AreEqual(dpi, actualDpi);
+
+        const float testValue = 100;
+
+        int pixels = 0;
+        ThrowIfFailed(drawingSession->ConvertDipsToPixels(testValue, &pixels));
+        Assert::AreEqual((int)(testValue * dpi / DEFAULT_DPI), pixels);
+
+        float dips = 0;
+        ThrowIfFailed(drawingSession->ConvertPixelsToDips((int)testValue, &dips));
+        Assert::AreEqual(testValue * DEFAULT_DPI / dpi, dips);
     }
 };
 
@@ -1865,44 +1915,34 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
 {
     class Fixture : public CanvasDrawingSessionFixture
     {
-        int m_drawTextCount;
-
     public:
         ComPtr<CanvasTextFormat> Format;
 
         Fixture()
-            : m_drawTextCount(0)
         {
             Format = Make<CanvasTextFormat>();
         }
 
         template<typename FORMAT_VALIDATOR>
-        void ExpectOnce(std::wstring expectedText, D2D1_RECT_F expectedRect, D2D1_DRAW_TEXT_OPTIONS expectedOptions, FORMAT_VALIDATOR&& formatValidator)
+        void Expect(int numCalls, std::wstring expectedText, D2D1_RECT_F expectedRect, D2D1_DRAW_TEXT_OPTIONS expectedOptions, FORMAT_VALIDATOR&& formatValidator)
         {            
-            DeviceContext->MockDrawText =
-                [=](const wchar_t* actualText,
+            DeviceContext->DrawTextMethod.SetExpectedCalls(numCalls,
+                [=](wchar_t const* actualText,
                     uint32_t actualTextLength,
                     IDWriteTextFormat* format,
-                    D2D1_RECT_F actualRect,
+                    D2D1_RECT_F const* actualRect,
                     ID2D1Brush* actualBrush,
                     D2D1_DRAW_TEXT_OPTIONS actualOptions,
                     DWRITE_MEASURING_MODE)
                 {
-                    m_drawTextCount++;
-
                     Assert::AreEqual(expectedText.c_str(), actualText);
                     Assert::AreEqual<size_t>(expectedText.size(), actualTextLength);
                     Assert::IsNotNull(format);
-                    Assert::AreEqual(expectedRect, actualRect);
+                    Assert::AreEqual(expectedRect, *actualRect);
                     Assert::AreEqual(expectedOptions, actualOptions);
 
                     formatValidator(format, actualBrush);
-                };
-        }
-
-        void Check(int expectedDrawCount)
-        {
-            Assert::AreEqual(expectedDrawCount, m_drawTextCount);
+                });
         }
     };
 
@@ -1929,28 +1969,29 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
                 ThrowIfFailed(f.Format->put_Options(CanvasDrawTextOptions::Clip));
             }
 
-            f.ExpectOnce(
+            int expectedDrawTextCalls = isColorOverload ? 2 : 1;
+
+            f.Expect(
+                expectedDrawTextCalls,
                 expectedText,
                 expectedRect,
                 hasTextFormat ? D2D1_DRAW_TEXT_OPTIONS_CLIP : D2D1_DRAW_TEXT_OPTIONS_NONE,
                 [&](IDWriteTextFormat* format, ID2D1Brush* brush)
-            {
-                Assert::AreEqual(isRectVersion ? (DWRITE_WORD_WRAPPING)expectedWordWrapping : DWRITE_WORD_WRAPPING_NO_WRAP, format->GetWordWrapping());
+                {
+                    Assert::AreEqual(isRectVersion ? (DWRITE_WORD_WRAPPING)expectedWordWrapping : DWRITE_WORD_WRAPPING_NO_WRAP, format->GetWordWrapping());
 
-                auto length = format->GetFontFamilyNameLength() + 1; // + 1 for NULL terminator
-                std::vector<wchar_t> buf(length);
-                ThrowIfFailed(format->GetFontFamilyName(&buf.front(), length));
-                auto actualFontFamilyName = std::wstring(buf.begin(), buf.end() - 1); // - 1 since we don't want NULL terminator in string
+                    auto length = format->GetFontFamilyNameLength() + 1; // + 1 for NULL terminator
+                    std::vector<wchar_t> buf(length);
+                    ThrowIfFailed(format->GetFontFamilyName(&buf.front(), length));
+                    auto actualFontFamilyName = std::wstring(buf.begin(), buf.end() - 1); // - 1 since we don't want NULL terminator in string
 
-                Assert::AreEqual(expectedFontFamilyName, actualFontFamilyName.c_str());
-                Assert::AreEqual(expectedFontSize, format->GetFontSize());
+                    Assert::AreEqual(expectedFontFamilyName, actualFontFamilyName.c_str());
+                    Assert::AreEqual(expectedFontSize, format->GetFontSize());
 
-                brushValidator.Check(brush);
-            });
+                    brushValidator.Check(brush);
+                });
 
             callDrawFunction(f, WinString(expectedText));
-
-            f.Check(isColorOverload ? 2 : 1);
 
             // After the call we expect the word wrapping to be how we left it
             CanvasWordWrapping actualWordWrapping{};
@@ -1959,7 +2000,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         }
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtPointWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtPointWithColor)
     {
         TestDrawText(false, false, true, D2D1_RECT_F{ 23, 42, 23, 42 },
             [](Fixture const& f, HSTRING text)
@@ -1969,7 +2010,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         });
     }
     
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtPointCoordsWithColor)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtPointCoordsWithColor)
     {
         TestDrawText(false, false, true, D2D1_RECT_F{ 23, 42, 23, 42 },
             [](Fixture const& f, HSTRING text)
@@ -1979,7 +2020,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         });
     }
     
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtPointWithBrushAndFormat)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtPointWithBrushAndFormat)
     {
         // Full version.
         TestDrawText(true, false, false, D2D1_RECT_F{ 23, 42, 23, 42 },
@@ -1999,7 +2040,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawTextAtPointWithBrushAndFormat(WinString(), Vector2{}, nullptr, nullptr));
     }
 
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtRectWithBrushAndFormat)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtRectWithBrushAndFormat)
     {
         // Full version.
         TestDrawText(true, true, false, D2D1_RECT_F{ 1, 2, 4, 6 },
@@ -2019,7 +2060,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawTextAtRectWithBrushAndFormat(WinString(), Rect{}, nullptr, nullptr));
     }
     
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtPointCoordsWithBrushAndFormat)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtPointCoordsWithBrushAndFormat)
     {
         // Full version.
         TestDrawText(true, false, false, D2D1_RECT_F{ 23, 42, 23, 42 },
@@ -2039,7 +2080,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawTextAtPointCoordsWithBrushAndFormat(WinString(), 0, 0, nullptr, nullptr));
     }
     
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtRectCoordsWithBrushAndFormat)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtRectCoordsWithBrushAndFormat)
     {
         // Full version.
         TestDrawText(true, true, false, D2D1_RECT_F{ 1, 2, 4, 6 },
@@ -2059,7 +2100,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         Assert::AreEqual(E_INVALIDARG, CanvasDrawingSessionFixture().DS->DrawTextAtRectCoordsWithBrushAndFormat(WinString(), 0, 0, 0, 0, nullptr, nullptr));
     }
     
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtPointWithColorAndFormat)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtPointWithColorAndFormat)
     {
         // Full version.
         TestDrawText(true, false, true, D2D1_RECT_F{ 23, 42, 23, 42 },
@@ -2078,7 +2119,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         });
     }
     
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtRectWithColorAndFormat)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtRectWithColorAndFormat)
     {
         // Full version.
         TestDrawText(true, true, true, D2D1_RECT_F{ 1, 2, 4, 6 },
@@ -2097,7 +2138,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         });
     }
     
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtPointCoordsWithColorAndFormat)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtPointCoordsWithColorAndFormat)
     {
         // Full version.
         TestDrawText(true, false, true, D2D1_RECT_F{ 23, 42, 23, 42 },
@@ -2116,7 +2157,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
         });
     }
     
-    TEST_METHOD(CanvasDrawingSession_DrawTextAtRectCoordsWithColorAndFormat)
+    TEST_METHOD_EX(CanvasDrawingSession_DrawTextAtRectCoordsWithColorAndFormat)
     {
         // Full version.
         TestDrawText(true, true, true, D2D1_RECT_F{ 1, 2, 4, 6 },
@@ -2139,7 +2180,7 @@ TEST_CLASS(CanvasDrawingSession_DrawTextTests)
 
 TEST_CLASS(CanvasDrawingSession_CloseTests)
 {
-    TEST_METHOD(CanvasDrawingSession_Close_ReleasesDeviceContextAndOtherMethodsFail)
+    TEST_METHOD_EX(CanvasDrawingSession_Close_ReleasesDeviceContextAndOtherMethodsFail)
     {
         //
         // Set up a device context that tracks when it was deleted (via the
@@ -2201,8 +2242,18 @@ TEST_CLASS(CanvasDrawingSession_CloseTests)
         EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImage(nullptr, Vector2{}));
         EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImageAtCoords(nullptr, 0, 0));
         EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImageAtOrigin(nullptr));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImageWithSourceRect(nullptr, Vector2{}, Rect{}));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImageWithSourceRectAndInterpolation(nullptr, Vector2{}, Rect{}, CanvasImageInterpolation::NearestNeighbor));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImageWithSourceRectAndInterpolationAndComposite(nullptr, Vector2{}, Rect{}, CanvasImageInterpolation::NearestNeighbor, CanvasComposite::SourceOver));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImageAtCoordsWithSourceRect(nullptr, 0, 0, Rect{}));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImageAtCoordsWithSourceRectAndInterpolation(nullptr, 0, 0, Rect{}, CanvasImageInterpolation::NearestNeighbor));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawImageAtCoordsWithSourceRectAndInterpolationAndComposite(nullptr, 0, 0, Rect{}, CanvasImageInterpolation::NearestNeighbor, CanvasComposite::SourceOver));
+
         EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawBitmapWithDestRect(nullptr, Rect{}));
         EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawBitmapWithDestRectAndSourceRect(nullptr, Rect{}, Rect{}));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawBitmapWithDestRectAndSourceRectAndOpacity(nullptr, Rect{}, Rect{}, 0));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawBitmapWithDestRectAndSourceRectAndOpacityAndInterpolation(nullptr, Rect{}, Rect{}, 0, CanvasImageInterpolation::NearestNeighbor));
+        EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawBitmapWithDestRectAndSourceRectAndOpacityAndInterpolationAndPerspective(nullptr, Rect{}, Rect{}, 0, CanvasImageInterpolation::NearestNeighbor, Numerics::Matrix4x4{}));
 
         EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawLineWithBrush(Vector2{}, Vector2{}, nullptr));
         EXPECT_OBJECT_CLOSED(canvasDrawingSession->DrawLineAtCoordsWithBrush(0, 0, 0, 0, nullptr));
@@ -2316,14 +2367,14 @@ TEST_CLASS(CanvasDrawingSession_CloseTests)
 #undef EXPECT_OBJECT_CLOSED
     }
 
-    TEST_METHOD(CanvasDrawingSession_Implements_ExpectedInterfaces)
+    TEST_METHOD_EX(CanvasDrawingSession_Implements_ExpectedInterfaces)
     {
         CanvasDrawingSessionFixture f;
 
         ASSERT_IMPLEMENTS_INTERFACE(f.DS, ICanvasResourceCreator);
     }
 
-    TEST_METHOD(CanvasDrawingSession_get_Device_NullArg)
+    TEST_METHOD_EX(CanvasDrawingSession_get_Device_NullArg)
     {
         CanvasDrawingSessionFixture f;
 
@@ -2333,7 +2384,7 @@ TEST_CLASS(CanvasDrawingSession_CloseTests)
 
 TEST_CLASS(CanvasDrawingSession_Interop)
 {
-    TEST_METHOD(CanvasDrawingSession_Wrapper_DoesNotAutomaticallyCallAnyMethods)
+    TEST_METHOD_EX(CanvasDrawingSession_Wrapper_DoesNotAutomaticallyCallAnyMethods)
     {
         auto manager = std::make_shared<CanvasDrawingSessionManager>();
         
@@ -2346,16 +2397,10 @@ TEST_CLASS(CanvasDrawingSession_Interop)
 
         // Check one method - we assume that the previous tests are enough to
         // exercise all the methods appropriately.
-        bool clearCalled = false;
-        deviceContext->MockClear =
-            [&](const D2D1_COLOR_F*)
-            {
-                Assert::IsFalse(clearCalled);
-                clearCalled = true;
-            };
+
+        deviceContext->ClearMethod.SetExpectedCalls(1);
 
         ThrowIfFailed(drawingSession->Clear(ABI::Windows::UI::Color{ 1, 2, 3, 4 }));
-        Assert::IsTrue(clearCalled);
 
         // Closing the drawing session should not result in any methods on the
         // deviceContext getting called.

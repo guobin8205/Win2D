@@ -35,6 +35,9 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
 
     private:
         ComPtr<ID2D1Effect> m_resource;
+        // Unlike other objects, !m_resource does not necessarily indicate
+        // that the object was closed.
+        bool m_closed; 
 
         IID m_effectId;
 
@@ -45,8 +48,10 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
 
         ComPtr<IUnknown> m_previousDeviceIdentity;
         std::vector<uint64_t> m_previousInputRealizationIds;
-        int64_t m_realizationId;
+        uint64_t m_realizationId;
         
+        std::vector<ComPtr<ID2D1Effect>> m_dpiCompensators;
+
         bool m_insideGetImage;
 
     public:
@@ -65,10 +70,24 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
         IFACEMETHOD(get_Properties)(_Out_ IVector<IInspectable*>** properties) override;
 
         //
+        // ICanvasImage
+        //
+
+        IFACEMETHOD(GetBounds)(
+            ICanvasDrawingSession *drawingSession,
+            Rect *bounds) override;
+
+        IFACEMETHOD(GetBoundsWithTransform)(
+            ICanvasDrawingSession *drawingSession,
+            Numerics::Matrix3x2 transform,
+            Rect *bounds) override;
+
+        //
         // ICanvasImageInternal
         //
 
-        ComPtr<ID2D1Image> GetD2DImage(ID2D1DeviceContext* deviceContext, uint64_t* realizationId);
+        ComPtr<ID2D1Image> GetD2DImage(ID2D1DeviceContext* deviceContext) override;
+        RealizedEffectNode GetRealizedEffectNode(ID2D1DeviceContext* deviceContext, float targetDpi) override;
 
     protected:
         // for effects with unknown number of inputs, inputs Size have to be set as zero
@@ -104,9 +123,42 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
             PropertyTypeConverter<TBoxed, TPublic>::Unbox(As<IPropertyValue>(propertyValue).Get(), value);
         }
 
+        template<typename T>
+        void SetArrayProperty(unsigned int index, uint32_t valueCount, T const* value)
+        {
+            auto propertyValue = CreateProperty(m_propertyValueFactory.Get(), valueCount, value);
+
+            ThrowIfFailed(m_properties->SetAt(index, propertyValue.Get()));
+        }
+
+        template<typename T>
+        void SetArrayProperty(unsigned int index, std::initializer_list<T> const& value)
+        {
+            SetArrayProperty<T>(index, static_cast<uint32_t>(value.size()), value.begin());
+        }
+
+        template<typename T>
+        void GetArrayProperty(unsigned int index, uint32_t* valueCount, T** value)
+        {
+            CheckInPointer(valueCount);
+            CheckAndClearOutPointer(value);
+
+            ComPtr<IInspectable> propertyValue;
+            ThrowIfFailed(m_properties->GetAt(index, &propertyValue));
+
+            GetPropertyValue(As<IPropertyValue>(propertyValue).Get(), valueCount, value);
+        }
+
+
+        // Marker type, used as TBoxed for float values that should be converted between radians and degrees.
+        struct ConvertRadiansToDegrees { };
+
 
     private:
-        void SetProperties();
+        void SetD2DInputs(ID2D1DeviceContext* deviceContext, float targetDpi, bool wasRecreated);
+        void SetD2DProperties();
+
+        void ThrowIfClosed();
 
 
         //
@@ -158,7 +210,8 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
                           std::is_same<TPublic, Numerics::Vector3>::value   ||
                           std::is_same<TPublic, Numerics::Vector4>::value   ||
                           std::is_same<TPublic, Numerics::Matrix3x2>::value ||
-                          std::is_same<TPublic, Numerics::Matrix4x4>::value,
+                          std::is_same<TPublic, Numerics::Matrix4x4>::value ||
+                          std::is_same<TPublic, Matrix5x4>::value,
                           "This type cannot be boxed as a float array");
 
             static_assert(sizeof(TPublic) == sizeof(float[N]), "Wrong array size");
@@ -172,17 +225,14 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
 
             static void Unbox(IPropertyValue* propertyValue, TPublic* result)
             {
-                float* arrayValue = nullptr;
-                unsigned int size;
+                ComArray<float> value;
 
-                ThrowIfFailed(propertyValue->GetSingleArray(&size, &arrayValue));
+                ThrowIfFailed(propertyValue->GetSingleArray(value.GetAddressOfSize(), value.GetAddressOfData()));
 
-                auto freeArrayWarden = MakeScopeWarden([&] { CoTaskMemFree(arrayValue); });
-
-                if (size != N)
+                if (value.GetSize() != N)
                     ThrowHR(E_BOUNDS);
 
-                *result = *reinterpret_cast<TPublic*>(arrayValue);
+                *result = *reinterpret_cast<TPublic*>(value.GetData());
             }
         };
 
@@ -248,6 +298,24 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
         };
 
 
+        // Handle the conversion for angles that are exposed as radians in WinRT, while internally D2D uses degrees.
+        template<>
+        struct PropertyTypeConverter<ConvertRadiansToDegrees, float>
+        {
+            static ComPtr<IPropertyValue> Box(IPropertyValueStatics* factory, float value)
+            {
+                return CreateProperty(factory, ::DirectX::XMConvertToDegrees(value));
+            }
+
+            static void Unbox(IPropertyValue* propertyValue, float* result)
+            {
+                float degrees;
+                GetPropertyValue(propertyValue, &degrees);
+                *result = ::DirectX::XMConvertToRadians(degrees);
+            }
+        };
+
+
         //
         // Wrap the IPropertyValue accessors (which use different method names for each type) with
         // overloaded C++ versions that can be used by generic PropertyTypeConverter implementations.
@@ -266,12 +334,28 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
             ThrowIfFailed(propertyValue->Get##WINRT_NAME(result));                                      \
         }
 
+#define ARRAY_PROPERTY_TYPE_ACCESSOR(TYPE, WINRT_NAME)                                                                          \
+        static ComPtr<IPropertyValue> CreateProperty(IPropertyValueStatics* factory, uint32_t valueCount, TYPE const* value)    \
+        {                                                                                                                       \
+            ComPtr<IPropertyValue> propertyValue;                                                                               \
+            ThrowIfFailed(factory->Create##WINRT_NAME##Array(valueCount, const_cast<TYPE*>(value), &propertyValue));            \
+            return propertyValue;                                                                                               \
+        }                                                                                                                       \
+                                                                                                                                \
+        static void GetPropertyValue(IPropertyValue* propertyValue, uint32_t* valueCount, TYPE** value)                         \
+        {                                                                                                                       \
+            ThrowIfFailed(propertyValue->Get##WINRT_NAME##Array(valueCount, value));                                            \
+        }
+
         PROPERTY_TYPE_ACCESSOR(float,    Single)
         PROPERTY_TYPE_ACCESSOR(int32_t,  Int32)
         PROPERTY_TYPE_ACCESSOR(uint32_t, UInt32)
         PROPERTY_TYPE_ACCESSOR(boolean,  Boolean)
+        
+        ARRAY_PROPERTY_TYPE_ACCESSOR(float, Single)
 
 #undef PROPERTY_TYPE_ACCESSOR
+#undef ARRAY_PROPERTY_TYPE_ACCESSOR
 
 
         //
@@ -282,25 +366,27 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
         IFACEMETHOD(get_##NAME)(TYPE* value) override;   \
         IFACEMETHOD(put_##NAME)(TYPE value) override
 
+#define ARRAY_PROPERTY(NAME, TYPE)                                                      \
+        IFACEMETHOD(get_##NAME)(UINT32 *valueCount, TYPE **valueElements) override;     \
+        IFACEMETHOD(put_##NAME)(UINT32 valueCount, TYPE *valueElements) override
+
 
 #define IMPLEMENT_INPUT_PROPERTY(CLASS_NAME, INPUT_NAME, INPUT_INDEX)                   \
                                                                                         \
         IFACEMETHODIMP CLASS_NAME::get_##INPUT_NAME(_Out_ IEffectInput** input)         \
         {                                                                               \
-            return ExceptionBoundary(                                                   \
-                [&]                                                                     \
-                {                                                                       \
-                    GetInput(INPUT_INDEX, input);                                       \
-                });                                                                     \
+            return ExceptionBoundary([&]                                                \
+            {                                                                           \
+                GetInput(INPUT_INDEX, input);                                           \
+            });                                                                         \
         }                                                                               \
                                                                                         \
         IFACEMETHODIMP CLASS_NAME::put_##INPUT_NAME(_In_ IEffectInput* input)           \
         {                                                                               \
-            return ExceptionBoundary(                                                   \
-                [&]                                                                     \
-                {                                                                       \
-                    SetInput(INPUT_INDEX, input);                                       \
-                });                                                                     \
+            return ExceptionBoundary([&]                                                \
+            {                                                                           \
+                SetInput(INPUT_INDEX, input);                                           \
+            });                                                                         \
         }
 
 
@@ -310,20 +396,18 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
                                                                                         \
         IFACEMETHODIMP CLASS_NAME::get_##PROPERTY_NAME(_Out_ PUBLIC_TYPE* value)        \
         {                                                                               \
-            return ExceptionBoundary(                                                   \
-                [&]                                                                     \
-                {                                                                       \
-                    GetProperty<BOXED_TYPE, PUBLIC_TYPE>(PROPERTY_INDEX, value);        \
-                });                                                                     \
+            return ExceptionBoundary([&]                                                \
+            {                                                                           \
+                GetProperty<BOXED_TYPE, PUBLIC_TYPE>(PROPERTY_INDEX, value);            \
+            });                                                                         \
         }                                                                               \
                                                                                         \
         IFACEMETHODIMP CLASS_NAME::put_##PROPERTY_NAME(_In_ PUBLIC_TYPE value)          \
         {                                                                               \
-            return ExceptionBoundary(                                                   \
-                [&]                                                                     \
-                {                                                                       \
-                    SetProperty<BOXED_TYPE, PUBLIC_TYPE>(PROPERTY_INDEX, value);        \
-                });                                                                     \
+            return ExceptionBoundary([&]                                                \
+            {                                                                           \
+                SetProperty<BOXED_TYPE, PUBLIC_TYPE>(PROPERTY_INDEX, value);            \
+            });                                                                         \
         }
 
 
@@ -333,11 +417,10 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
                                                                                         \
         IFACEMETHODIMP CLASS_NAME::get_##PROPERTY_NAME(_Out_ PUBLIC_TYPE* value)        \
         {                                                                               \
-            return ExceptionBoundary(                                                   \
-                [&]                                                                     \
-                {                                                                       \
-                    GetProperty<BOXED_TYPE, PUBLIC_TYPE>(PROPERTY_INDEX, value);        \
-                });                                                                     \
+            return ExceptionBoundary([&]                                                \
+            {                                                                           \
+                GetProperty<BOXED_TYPE, PUBLIC_TYPE>(PROPERTY_INDEX, value);            \
+            });                                                                         \
         }                                                                               \
                                                                                         \
         IFACEMETHODIMP CLASS_NAME::put_##PROPERTY_NAME(_In_ PUBLIC_TYPE value)          \
@@ -347,11 +430,32 @@ namespace ABI { namespace Microsoft { namespace Graphics { namespace Canvas { na
                 return E_INVALIDARG;                                                    \
             }                                                                           \
                                                                                         \
-            return ExceptionBoundary(                                                   \
-                [&]                                                                     \
-                {                                                                       \
-                    SetProperty<BOXED_TYPE, PUBLIC_TYPE>(PROPERTY_INDEX, value);        \
-                });                                                                     \
+            return ExceptionBoundary([&]                                                \
+            {                                                                           \
+                SetProperty<BOXED_TYPE, PUBLIC_TYPE>(PROPERTY_INDEX, value);            \
+            });                                                                         \
         }
     };
+
+
+#define IMPLEMENT_ARRAY_PROPERTY(CLASS_NAME, PROPERTY_NAME, TYPE, PROPERTY_INDEX)       \
+                                                                                        \
+        IFACEMETHODIMP CLASS_NAME::get_##PROPERTY_NAME(UINT32 *valueCount,              \
+                                                       TYPE **valueElements)            \
+        {                                                                               \
+            return ExceptionBoundary([&]                                                \
+            {                                                                           \
+                GetArrayProperty<TYPE>(PROPERTY_INDEX, valueCount, valueElements);      \
+            });                                                                         \
+        }                                                                               \
+                                                                                        \
+        IFACEMETHODIMP CLASS_NAME::put_##PROPERTY_NAME(UINT32 valueCount,               \
+                                                       TYPE *valueElements)             \
+        {                                                                               \
+            return ExceptionBoundary([&]                                                \
+            {                                                                           \
+                SetArrayProperty<TYPE>(PROPERTY_INDEX, valueCount, valueElements);      \
+            });                                                                         \
+        }
+
 }}}}}
